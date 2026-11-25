@@ -115,14 +115,18 @@ def vocabulary():
         rows = db.execute("SELECT term,canonical_aspect FROM vocabulary ORDER BY length(term) DESC").fetchall()
     return {r["term"]: r["canonical_aspect"] for r in rows}
 
+def _normalize_with_vocab(text, vocab):
+    """Canonicalize phrases with one explicit vocabulary snapshot."""
+    value = str(text or "").lower()
+    for term, aspect in sorted(vocab.items(), key=lambda item: len(item[0]), reverse=True):
+        value = re.sub(r"(?<!\\w)" + re.escape(term.lower()) + r"(?!\\w)",
+                       " " + aspect + " ", value, flags=re.IGNORECASE)
+    return re.sub(r"\\s+", " ", value).strip()
+
+
 def normalize_rojak(text):
     """Canonicalize approved slang phrases while retaining negation words."""
-    value = str(text or "").lower()
-    for term, aspect in vocabulary().items():
-        value = re.sub(r"(?<!\w)" + re.escape(term.lower()) + r"(?!\w)",
-                       " " + aspect + " ", value, flags=re.IGNORECASE)
-    value = re.sub(r"\s+", " ", value).strip()
-    return value
+    return _normalize_with_vocab(text, vocabulary())
 
 def submit_feedback(question, correction, predicted_aspect=None):
     init_db()
@@ -238,15 +242,23 @@ def _score_model(X_train, y_train, X_test, y_test):
 def evaluate_classifier():
     """Compare seed-only baseline with approved-feedback training on one fixed test set."""
     test_examples = load_test_examples()
-    X_test = [normalize_rojak(question) for question, _ in test_examples]
     y_test = [label for _, label in test_examples]
 
-    baseline_X = [normalize_rojak(question) for question, _ in SEED_EXAMPLES]
+    # Each stage uses only the vocabulary available at that stage.
+    baseline_vocab = DEFAULT_VOCAB.copy()
+    baseline_X = [_normalize_with_vocab(q, baseline_vocab) for q, _ in SEED_EXAMPLES]
+    baseline_test = [_normalize_with_vocab(q, baseline_vocab) for q, _ in test_examples]
     baseline_y = [label for _, label in SEED_EXAMPLES]
-    baseline = _score_model(baseline_X, baseline_y, X_test, y_test)
+    baseline = _score_model(baseline_X, baseline_y, baseline_test, y_test)
 
-    trained_X, trained_y = training_data()
-    learned = _score_model(trained_X, trained_y, X_test, y_test)
+    learned_vocab = vocabulary()
+    trained_X = [_normalize_with_vocab(q, learned_vocab) for q, _ in SEED_EXAMPLES]
+    trained_y = [label for _, label in SEED_EXAMPLES]
+    approved = [row for row in feedback_rows("approved") if row.get("corrected_aspect") in ASPECTS]
+    trained_X.extend(_normalize_with_vocab(row["question"], learned_vocab) for row in approved)
+    trained_y.extend(row["corrected_aspect"] for row in approved)
+    learned_test = [_normalize_with_vocab(q, learned_vocab) for q, _ in test_examples]
+    learned = _score_model(trained_X, trained_y, learned_test, y_test)
     approved_count = sum(1 for row in feedback_rows("approved")
                          if row.get("corrected_aspect") in ASPECTS)
 
