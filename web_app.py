@@ -13,12 +13,13 @@ import re
 from urllib.parse import urlparse
 
 from nlp_engine import ReviewAssistant, load_reviews
+import learning
 
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "web"
 DATA = ROOT / "data" / "dataset.csv"
-FEEDBACK = ROOT / "web_feedback.jsonl"
+FEEDBACK = ROOT / "web_feedback.jsonl"  # legacy; new submissions use SQLite
 
 PRODUCTS = [
     {"id": "BM-101", "name": "Baju Kurung Classic", "colour": "Royal Blue & Gold", "price": 89, "tag": "BESTSELLER", "style": "navy"},
@@ -68,7 +69,7 @@ def product_answer(question, product_context=False):
     aspect = ASPECTS[aspect_key]
     if product_context and aspect_key == "fit":
         return {"reply": "I don't have reliable sizing feedback for this specific women's cut yet. The available reviews are not tagged by style, so I wouldn't want to promise that its fit matches another garment. Please compare the garment measurements with your own before ordering.", "evidence": [], "type": "insufficient"}
-    query = question + " " + aspect["query"]
+    query = learning.normalize_rojak(question) + " " + aspect["query"]
     hits = BOT.retrieve(query, top_k=25)
     relevant = []
     seen = set()
@@ -123,7 +124,7 @@ def respond(text, context=None):
     if order_terms and not detects_aspect(wording):
         return {"reply": "Sure—I can check your order. Attach it from My Orders or paste its order ID or parcel code here, and tell me what you'd like to know.", "evidence": [], "type": "order_prompt"}
     if re.search(r"\b(refund|return|cancel|pulangan|pulang|batalkan|bayaran balik)\b", lower):
-        return {"reply": "You can request a return within 7 days after delivery if the item is unused and still has its tags. Would you like help finding your order?", "evidence": [], "type": "policy"}
+        return {"reply": "I do not have a verified store return policy in the review dataset, so I cannot confirm the return window or conditions. Please check the seller official policy or contact the store directly.", "evidence": [], "type": "insufficient"}
     if re.search(r"\b(hi|hello|hey|hai|helo|assalamualaikum)\b", lower) and len(lower.split()) <= 4:
         return {"reply": "Hi! Happy to help. Ask me about fabric, stitching, delivery reviews or an order. You can mix English and BM—no problem.", "evidence": [], "type": "greeting"}
     if re.search(r"\b(thank|thanks|terima kasih|tq)\b", lower):
@@ -146,6 +147,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"products": PRODUCTS, "orders": ORDERS, "review_count": len(BOT.df)})
         if path == "/api/health":
             return self._json(200, {"ok": True, "reviews": len(BOT.df)})
+        if path == "/api/admin/summary":
+            return self._json(200, learning.summary())
+        if path == "/api/admin/feedback":
+            return self._json(200, {"feedback": learning.feedback_rows()})
         target = (PUBLIC / (path.lstrip("/") or "index.html")).resolve()
         if PUBLIC.resolve() not in target.parents or not target.is_file():
             self.send_error(404)
@@ -173,9 +178,19 @@ class Handler(BaseHTTPRequestHandler):
             correction = str(payload.get("correction", "")).strip()[:2000]
             if not question or not correction:
                 return self._json(400, {"error": "Question and correction are required"})
-            with FEEDBACK.open("a", encoding="utf-8") as file:
-                file.write(json.dumps({"question": question, "correction": correction}, ensure_ascii=False) + "\n")
-            return self._json(200, {"saved": True, "note": "Saved for review; not applied automatically"})
+            feedback_id = learning.submit_feedback(question, correction, detects_aspect(question))
+            return self._json(200, {"saved": True, "id": feedback_id, "status": "pending", "note": "Saved for human review; not used for learning until approved"})
+        if self.path == "/api/admin/review":
+            try:
+                learning.review_feedback(payload.get("id"), payload.get("decision"), payload.get("corrected_aspect"), payload.get("vocab_term"), payload.get("vocab_aspect"))
+                return self._json(200, {"saved": True, "summary": learning.summary()})
+            except (ValueError, TypeError) as exc:
+                return self._json(400, {"error": str(exc)})
+        if self.path == "/api/admin/evaluate":
+            try:
+                return self._json(200, learning.evaluate_classifier())
+            except Exception as exc:
+                return self._json(500, {"error": str(exc)})
         return self._json(404, {"error": "Unknown endpoint"})
 
 
