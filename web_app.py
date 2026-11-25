@@ -59,7 +59,7 @@ def detects_aspect(question):
         return learning.predict_aspect(question)["aspect"]
     except Exception:
         # Keep the app usable if model training fails; this is only a fallback.
-        words = set(re.findall(r"\\w+", question.lower()))
+        words = set(re.findall(r"\w+", question.lower()))
         for key, aspect in ASPECTS.items():
             if words.intersection(aspect["terms"]):
                 return key
