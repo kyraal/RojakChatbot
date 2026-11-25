@@ -1,0 +1,41 @@
+question,aspect
+"Does this kurung run small?",fit
+"Cutting dia loose dekat bahu ke?",fit
+"Will size M fit someone petite?",fit
+"Baju ni ngam untuk badan berisi?",fit
+"Is the waist measurement accurate?",fit
+"Labuh lengan dia panjang sangat ke?",fit
+"Kalau biasa pakai S, should I size up?",fit
+"Potongan pinggang ni ketat tak?",fit
+"Does the cloth trap heat?",fabric
+"Kain dia rasa melekit bila berpeluh?",fabric
+"Material ni ringan untuk cuaca panas?",fabric
+"Is it soft against sensitive skin?",fabric
+"Fabric dia jenis tebal atau airy?",fabric
+"Rasa gatal tak bila pakai lama?",fabric
+"Kain ni mudah bernafas tak?",fabric
+"Is the material comfy for daily wear?",fabric
+"Are the seams finished properly?",quality
+"Benang dekat tepi banyak tercabut tak?",quality
+"Does the zip feel sturdy?",quality
+"Finishing baju ni nampak cheap ke?",quality
+"Jahitan dia senget dekat lengan?",quality
+"Will the fabric tear easily?",quality
+"Any loose threads around the hem?",quality
+"Kualiti workmanship dia okay tak?",quality
+"Does the actual shade match the listing?",colour
+"Colour dia nampak kusam ke?",colour
+"Adakah warna mudah turun selepas basuh?",colour
+"Is the print vibrant in person?",colour
+"Tone biru dia lebih gelap daripada gambar?",colour
+"Design ni nampak elegant tak?",colour
+"Is the colour consistent across the outfit?",colour
+"Warna kain ni striking sangat ke?",colour
+"How many days does shipping usually take?",delivery
+"Courier hantar sampai rumah atau pickup point?",delivery
+"Parcel dah keluar untuk delivery ke?",delivery
+"Penghantaran ke Sabah ambil masa lama?",delivery
+"Has the seller dispatched my order?",delivery
+"Shipping dia reliable tak?",delivery
+"Barang biasanya sampai dalam berapa hari?",delivery
+"Is delivery included in the estimated timeline?",delivery
