@@ -81,3 +81,42 @@ Test questions such as:
 - `Delivery cepat tak?`
 
 Also test out-of-scope questions such as `Can I get a refund?` or `Where is my parcel?`. The assistant should return insufficient evidence rather than inventing seller policies or order information.
+
+
+## Rojak learning-loop upgrade (working branch)
+
+The HTML storefront is the interactive demo for the human-in-the-loop workflow:
+
+```bash
+python web_app.py
+```
+
+Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for the local learning dashboard.
+
+### What is implemented
+
+- **Rojak normalization:** a transparent vocabulary table maps approved informal words and phrases to aspect concepts. The normalizer preserves negation words such as `tak` and `not`.
+- **Supervised aspect classification:** word- and character-level TF-IDF features feed a Logistic Regression classifier for fit, fabric, quality, colour and delivery. Low-confidence predictions fall back to clarification / the existing aspect fallback.
+- **Human approval:** chat corrections enter a SQLite queue as pending. Only an explicit admin approval can add a corrected aspect example or vocabulary mapping.
+- **Retrieval integration:** incoming questions and the review index use the same approved vocabulary normalization. After an approval, the word and character TF-IDF matrices are rebuilt from the original review corpus. The original review text remains the evidence shown to users.
+- **Learning dashboard:** pending / approved / rejected counts, vocabulary size, training-example count and classifier evaluation history.
+- **Speech input:** the browser speech-recognition language can be selected (BM or English variants); users can review/edit the transcript in the chat input before sending. Availability and accuracy depend on browser support and the browser's speech service.
+
+### Important data and evaluation safeguards
+
+- A correction is not a review and is never added to the customer-review evidence corpus.
+- Approval of a correction is a human annotation for the aspect classifier; an optional vocabulary phrase is a separate explicit mapping.
+- The current classifier starts with a small hand-written seed set. Its displayed evaluation is a reproducible stratified holdout of those seed examples, with approved examples added to training only. It is **not** a reliable estimate of performance on all Malaysian Rojak. Collect and manually label a larger independent test set before reporting final performance.
+- The learning database is `data/learning.db` and is local to the machine running the Python server. This workflow is intended for a local classroom demonstration; the admin endpoint has no authentication and should not be exposed publicly as-is.
+- The HTML storefront's products and orders are simulated demo records. The review dataset does not establish those catalogue facts. The assistant must not present a simulated return policy as verified seller policy.
+- The Streamlit app remains available as the original syllabus/demo interface; the new SQLite approval workflow is currently connected to the HTML/Python server.
+
+### Suggested evaluation before submission
+
+1. Create a separate manually labelled Rojak test set with examples from English, BM, mixed language, spelling variants, negation, ambiguous and out-of-scope questions.
+2. Freeze that test set. Record baseline aspect accuracy, macro precision/recall/F1 and confusion matrix.
+3. Collect classmate corrections, review them, approve only valid annotations, then retrain and rerun the exact same test set.
+4. For retrieval, manually mark relevant source reviews for each query and report Precision@5, Recall@5 and MRR. Do not use classifier accuracy as a substitute for retrieval quality.
+5. For voice, test the same recordings in BM and English, manually transcribe references, and compare Word Error Rate (WER), latency and user preference across supported browsers.
+6. Report actual sample sizes and scores from your test runs. Do not invent improvement if the metrics do not improve.
+
