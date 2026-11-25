@@ -53,16 +53,20 @@ def clean_text(text):
 
 
 class ReviewAssistant:
-    def __init__(self,df):
+    def __init__(self,df,normalizer=None):
         self.df=df.copy()
-        self.df['clean']=self.df.review.map(clean_text)
+        self.normalizer=normalizer or (lambda value: value)
+        # Keep original review text for evidence, but fit TF-IDF on the same
+        # approved-vocabulary normalization used for incoming questions.
+        self.df['index_text']=self.df.review.map(self.normalizer)
+        self.df['clean']=self.df.index_text.map(clean_text)
         self.word=TfidfVectorizer(ngram_range=(1,2),min_df=1,sublinear_tf=True,strip_accents='unicode')
         self.char=TfidfVectorizer(analyzer='char_wb',ngram_range=(3,5),min_df=1,sublinear_tf=True,max_features=30000)
         self.word_matrix=self.word.fit_transform(self.df.clean)
         self.char_matrix=self.char.fit_transform(self.df.clean)
 
     def retrieve(self,question,top_k=5):
-        q=clean_text(question)
+        q=clean_text(self.normalizer(question))
         if not q: return []
         qword=self.word.transform([q]); qchar=self.char.transform([q])
         scores=.55*cosine_similarity(qword,self.word_matrix).ravel()+.45*cosine_similarity(qchar,self.char_matrix).ravel()
