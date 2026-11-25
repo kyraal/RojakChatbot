@@ -53,7 +53,7 @@ DEFAULT_VOCAB = {
     "bahang": "fabric", "berbahang": "fabric", "rimas": "fabric",
     "lembut": "fabric", "breathable": "fabric", "comfy": "fabric",
     "selesa": "fabric", "panas": "fabric",
-    "sloppy": "quality", "kemas": "quality", "tak kemas": "quality",
+    "sloppy": "quality", "kemas": "quality",
     "benang terkeluar": "quality", "rabak": "quality", "koyak": "quality",
     "lawa": "colour", "cun": "colour", "cantik": "colour",
     "pudar": "colour", "luntur": "colour",
