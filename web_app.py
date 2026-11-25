@@ -194,6 +194,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"saved": True, "summary": learning.summary()})
             except (ValueError, TypeError) as exc:
                 return self._json(400, {"error": str(exc)})
+        if self.path == "/api/admin/evaluate-retrieval":
+            try:
+                return self._json(200, {
+                    **learning.evaluate_retrieval(BOT),
+                    "history": learning.retrieval_evaluation_history()
+                })
+            except Exception as exc:
+                return self._json(500, {"error": str(exc)})
         if self.path == "/api/admin/evaluate":
             try:
                 return self._json(200, learning.evaluate_classifier())
