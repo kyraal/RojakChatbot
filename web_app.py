@@ -43,7 +43,7 @@ ASPECTS = {
 def load_bot():
     if not DATA.exists():
         raise FileNotFoundError(f"Review dataset missing: {DATA}")
-    return ReviewAssistant(load_reviews(DATA))
+    return ReviewAssistant(load_reviews(DATA), normalizer=learning.normalize_rojak)
 
 
 BOT = load_bot()
@@ -186,6 +186,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/admin/review":
             try:
                 learning.review_feedback(payload.get("id"), payload.get("decision"), payload.get("corrected_aspect"), payload.get("vocab_term"), payload.get("vocab_aspect"))
+                if payload.get("decision") == "approved":
+                    global BOT
+                    BOT = load_bot()  # rebuild word + character TF-IDF matrices with approved vocabulary
                 return self._json(200, {"saved": True, "summary": learning.summary()})
             except (ValueError, TypeError) as exc:
                 return self._json(400, {"error": str(exc)})
