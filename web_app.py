@@ -154,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, learning.summary())
         if path == "/api/admin/feedback":
             return self._json(200, {"feedback": learning.feedback_rows()})
+        if path == "/admin":
+            path = "/admin.html"
         target = (PUBLIC / (path.lstrip("/") or "index.html")).resolve()
         if PUBLIC.resolve() not in target.parents or not target.is_file():
             self.send_error(404)
