@@ -25,8 +25,11 @@ def load_reviews(path):
     text_col=_find_col(df.columns,['review','reviews','text','comment','content'])
     rating_col=_find_col(df.columns,['rating','ratings','stars','score'])
     author_col=_find_col(df.columns,['author','user','username','user id','userid'])
+    id_col=_find_col(df.columns,['no.','review id','review_id','id'])
     if text_col is None: raise ValueError(f"Could not identify review-text column. Columns found: {list(df.columns)}")
     out=pd.DataFrame({'review':df[text_col].fillna('').astype(str)})
+    # Preserve the dataset's stable review number for retrieval evaluation.
+    out['review_id']=df[id_col].astype(str) if id_col else (df.index + 1).astype(str)
     out['rating']=pd.to_numeric(df[rating_col],errors='coerce') if rating_col else np.nan
     out['author']=df[author_col].fillna('Unknown').astype(str) if author_col else 'Unknown'
     out=out[out.review.str.strip().ne('')].copy().reset_index(drop=True)
@@ -75,7 +78,8 @@ class ReviewAssistant:
         for idx in order[:top_k]:
             if scores[idx] < .025: continue
             r=self.df.iloc[int(idx)]
-            results.append({'review':r.review.strip(),'rating':None if pd.isna(r.rating) else int(r.rating),'sentiment':r.sentiment,'score':float(scores[idx])})
+            review_id=r.get('review_id', str(idx + 1))
+            results.append({'review_id':str(review_id),'review':r.review.strip(),'rating':None if pd.isna(r.rating) else int(r.rating),'sentiment':r.sentiment,'score':float(scores[idx])})
         return results
 
     def answer(self,question,top_k=5):
