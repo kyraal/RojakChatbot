@@ -55,12 +55,15 @@ def matching_order(text):
 
 
 def detects_aspect(question):
-    words = set(re.findall(r"\w+", question.lower()))
-    for key, aspect in ASPECTS.items():
-        if words.intersection(aspect["terms"]):
-            return key
-    return None
-
+    try:
+        return learning.predict_aspect(question)["aspect"]
+    except Exception:
+        # Keep the app usable if model training fails; this is only a fallback.
+        words = set(re.findall(r"\\w+", question.lower()))
+        for key, aspect in ASPECTS.items():
+            if words.intersection(aspect["terms"]):
+                return key
+        return None
 
 def product_answer(question, product_context=False):
     aspect_key = detects_aspect(question)
