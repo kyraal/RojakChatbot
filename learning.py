@@ -178,7 +178,6 @@ def _new_model():
 def train_aspect_classifier():
     X, y = training_data()
     model = LogisticRegression(max_iter=1200, class_weight="balanced", random_state=42)
-    model.fit(_new_model().fit_transform(X), y)
     # Store the fitted feature extractor alongside the classifier for inference.
     features = _new_model()
     matrix = features.fit_transform(X)
