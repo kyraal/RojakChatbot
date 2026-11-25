@@ -297,7 +297,7 @@ async function startVoice() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) { $("#voice-transcript").textContent = "Live transcription is unavailable in this browser, but your audio is being recorded."; return; }
   const recognition = new Recognition(); state.recognition = recognition;
-  recognition.lang = "ms-MY"; recognition.interimResults = true; recognition.continuous = true;
+  recognition.lang = $("#voice-language")?.value || "ms-MY"; recognition.interimResults = true; recognition.continuous = true;
   recognition.onresult = event => {
     let finalText = "", interimText = "";
     for (const result of event.results) {
