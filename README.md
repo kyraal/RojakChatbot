@@ -106,16 +106,16 @@ Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for 
 
 - A correction is not a review and is never added to the customer-review evidence corpus.
 - Approval of a correction is a human annotation for the aspect classifier; an optional vocabulary phrase is a separate explicit mapping.
-- The current classifier starts with a small hand-written seed set. Its displayed evaluation is a reproducible stratified holdout of those seed examples, with approved examples added to training only. It is **not** a reliable estimate of performance on all Malaysian Rojak. Collect and manually label a larger independent test set before reporting final performance.
+- The classifier starts with a small hand-written seed set. The dashboard compares a seed-only baseline with a model trained on approved corrections using the same separately labelled test set (`data/aspect_test_set.csv`). Test examples are never used for training. This small manually authored set is not representative of all Malaysian Rojak; expand and independently review it before making broad performance claims.
 - The learning database is `data/learning.db` and is local to the machine running the Python server. This workflow is intended for a local classroom demonstration; the admin endpoint has no authentication and should not be exposed publicly as-is.
 - The HTML storefront's products and orders are simulated demo records. The review dataset does not establish those catalogue facts. The assistant must not present a simulated return policy as verified seller policy.
 - The Streamlit app remains available as the original syllabus/demo interface; the new SQLite approval workflow is currently connected to the HTML/Python server.
 
 ### Suggested evaluation before submission
 
-1. Create a separate manually labelled Rojak test set with examples from English, BM, mixed language, spelling variants, negation, ambiguous and out-of-scope questions.
-2. Freeze that test set. Record baseline aspect accuracy, macro precision/recall/F1 and confusion matrix.
-3. Collect classmate corrections, review them, approve only valid annotations, then retrain and rerun the exact same test set.
+1. Review and expand `data/aspect_test_set.csv` with independently labelled English, BM, mixed-language, spelling-variant and negation examples.
+2. Keep the test set frozen and outside training. Record the seed-only baseline and the model after approved corrections using accuracy, macro precision/recall/F1 and confusion matrix.
+3. Collect classmate corrections, approve only valid annotations, then rerun the exact same test set.
 4. For retrieval, manually mark relevant source reviews for each query and report Precision@5, Recall@5 and MRR. Do not use classifier accuracy as a substitute for retrieval quality.
 5. For voice, test the same recordings in BM and English, manually transcribe references, and compare Word Error Rate (WER), latency and user preference across supported browsers.
 6. Report actual sample sizes and scores from your test runs. Do not invent improvement if the metrics do not improve.
