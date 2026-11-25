@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import sqlite3
 import csv
+import json
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -99,6 +100,15 @@ def init_db():
             baseline_macro_f1 REAL,
             macro_precision REAL,
             macro_recall REAL
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS retrieval_evaluation_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            precision_at_5 REAL NOT NULL,
+            recall_at_5 REAL NOT NULL,
+            mrr REAL NOT NULL,
+            query_count INTEGER NOT NULL,
+            results_json TEXT NOT NULL
         )""")
         # Migrate databases created by earlier versions of the learning loop.
         columns = {row[1] for row in db.execute("PRAGMA table_info(evaluation_runs)")}
@@ -286,6 +296,84 @@ def evaluate_classifier():
          len(trained_X), approved_count, baseline["accuracy"], baseline["macro_f1"],
          learned["macro_precision"], learned["macro_recall"]))
     return result
+
+
+def load_retrieval_test_examples():
+    """Load manually labelled query-to-review relevance judgements."""
+    path = ROOT / "data" / "retrieval_test_set.csv"
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    examples = []
+    for row in rows:
+        query = (row.get("query") or "").strip()
+        relevant = [value.strip() for value in (row.get("relevant_review_ids") or "").split(";") if value.strip()]
+        if query and relevant:
+            examples.append({"query": query, "relevant_review_ids": sorted(set(relevant))})
+    if not examples:
+        raise ValueError("The retrieval test set is empty or has no relevance labels")
+    return examples
+
+
+def retrieval_metrics(retrieved_ids, relevant_ids, k=5):
+    """Calculate fixed-k Precision, Recall and reciprocal rank for one query."""
+    relevant = set(str(value) for value in relevant_ids)
+    retrieved = [str(value) for value in retrieved_ids[:k]]
+    hits = sum(1 for value in retrieved if value in relevant)
+    precision = hits / float(k)  # Missing results count as non-relevant.
+    recall = hits / float(len(relevant)) if relevant else 0.0
+    reciprocal_rank = next((1.0 / rank for rank, value in enumerate(retrieved, 1)
+                            if value in relevant), 0.0)
+    return {"precision_at_5": precision, "recall_at_5": recall, "mrr": reciprocal_rank,
+            "relevant_found": hits, "retrieved_count": len(retrieved)}
+
+
+def evaluate_retrieval(assistant, top_k=5):
+    """Evaluate top-k retrieval against a human-labelled, fixed relevance set."""
+    if top_k != 5:
+        raise ValueError("This dashboard currently reports fixed Precision@5 and Recall@5")
+    examples = load_retrieval_test_examples()
+    details = []
+    for example in examples:
+        hits = assistant.retrieve(example["query"], top_k=top_k)
+        retrieved_ids = [str(hit.get("review_id", "")) for hit in hits]
+        scores = retrieval_metrics(retrieved_ids, example["relevant_review_ids"], top_k)
+        details.append({
+            "query": example["query"],
+            "relevant_review_ids": example["relevant_review_ids"],
+            "retrieved_review_ids": retrieved_ids,
+            **scores
+        })
+    count = len(details)
+    averages = {
+        key: float(sum(row[key] for row in details) / count)
+        for key in ("precision_at_5", "recall_at_5", "mrr")
+    }
+    result = {
+        **averages,
+        "query_count": count,
+        "top_k": top_k,
+        "test_set": "data/retrieval_test_set.csv",
+        "results": details,
+        "note": "Relevance labels are manually assigned. Review IDs refer to the No. column in data/dataset.csv."
+    }
+    with connect() as db:
+        db.execute("""INSERT INTO retrieval_evaluation_runs(
+            created_at,precision_at_5,recall_at_5,mrr,query_count,results_json
+        ) VALUES(?,?,?,?,?,?)""",
+        (datetime.now(timezone.utc).isoformat(), averages["precision_at_5"],
+         averages["recall_at_5"], averages["mrr"], count,
+         json.dumps(details, ensure_ascii=False)))
+    return result
+
+
+def retrieval_evaluation_history(limit=10):
+    init_db()
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id,created_at,precision_at_5,recall_at_5,mrr,query_count "
+            "FROM retrieval_evaluation_runs ORDER BY id DESC LIMIT ?", (int(limit),)
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 def summary():
     init_db()
