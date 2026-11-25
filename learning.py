@@ -9,12 +9,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 import sqlite3
+import csv
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import FeatureUnion
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 
 ROOT = Path(__file__).resolve().parent
@@ -93,8 +94,17 @@ def init_db():
             accuracy REAL NOT NULL,
             macro_f1 REAL NOT NULL,
             training_examples INTEGER NOT NULL,
-            approved_corrections INTEGER NOT NULL
+            approved_corrections INTEGER NOT NULL,
+            baseline_accuracy REAL,
+            baseline_macro_f1 REAL,
+            macro_precision REAL,
+            macro_recall REAL
         )""")
+        # Migrate databases created by earlier versions of the learning loop.
+        columns = {row[1] for row in db.execute("PRAGMA table_info(evaluation_runs)")}
+        for name in ("baseline_accuracy", "baseline_macro_f1", "macro_precision", "macro_recall"):
+            if name not in columns:
+                db.execute(f"ALTER TABLE evaluation_runs ADD COLUMN {name} REAL")
         for term, aspect in DEFAULT_VOCAB.items():
             db.execute("INSERT OR IGNORE INTO vocabulary(term,canonical_aspect,approved_at) VALUES(?,?,?)",
                        (term, aspect, "seed"))
@@ -195,34 +205,74 @@ def predict_aspect(question):
         return {"aspect": None, "confidence": confidence, "training_examples": count}
     return {"aspect": label, "confidence": confidence, "training_examples": count}
 
-def evaluate_classifier():
-    """Fixed seed holdout; approved examples are training-only and never enter test."""
-    X = [normalize_rojak(x) for x, _ in SEED_EXAMPLES]
-    y = [label for _, label in SEED_EXAMPLES]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=.25, random_state=42, stratify=y)
-    approved = [r for r in feedback_rows("approved") if r.get("corrected_aspect") in ASPECTS]
-    X_train += [normalize_rojak(r["question"]) for r in approved]
-    y_train += [r["corrected_aspect"] for r in approved]
+def load_test_examples():
+    """Load the fixed, independently authored aspect test set."""
+    path = ROOT / "data" / "aspect_test_set.csv"
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    examples = [(row["question"].strip(), row["aspect"].strip())
+                for row in rows if row.get("question") and row.get("aspect")]
+    if not examples or any(label not in ASPECTS for _, label in examples):
+        raise ValueError("The aspect test set is empty or contains an invalid aspect label")
+    return examples
+
+
+def _score_model(X_train, y_train, X_test, y_test):
     features = _new_model()
     train_matrix = features.fit_transform(X_train)
     test_matrix = features.transform(X_test)
     model = LogisticRegression(max_iter=1200, class_weight="balanced", random_state=42)
     model.fit(train_matrix, y_train)
-    pred = model.predict(test_matrix)
+    predictions = model.predict(test_matrix)
     labels = list(ASPECTS)
-    accuracy = float(accuracy_score(y_test, pred))
-    macro = float(f1_score(y_test, pred, labels=labels, average="macro", zero_division=0))
-    report = classification_report(y_test, pred, labels=labels, zero_division=0, output_dict=True)
-    result = {"accuracy": accuracy, "macro_f1": macro, "labels": labels,
-              "confusion_matrix": confusion_matrix(y_test, pred, labels=labels).tolist(),
-              "report": report, "training_examples": len(X_train),
-              "approved_corrections": len(approved), "test_examples": len(y_test)}
+    return {
+        "accuracy": float(accuracy_score(y_test, predictions)),
+        "macro_precision": float(precision_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+        "macro_recall": float(recall_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+        "macro_f1": float(f1_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+        "confusion_matrix": confusion_matrix(y_test, predictions, labels=labels).tolist(),
+        "report": classification_report(y_test, predictions, labels=labels, zero_division=0, output_dict=True),
+    }
+
+
+def evaluate_classifier():
+    """Compare seed-only baseline with approved-feedback training on one fixed test set."""
+    test_examples = load_test_examples()
+    X_test = [normalize_rojak(question) for question, _ in test_examples]
+    y_test = [label for _, label in test_examples]
+
+    baseline_X = [normalize_rojak(question) for question, _ in SEED_EXAMPLES]
+    baseline_y = [label for _, label in SEED_EXAMPLES]
+    baseline = _score_model(baseline_X, baseline_y, X_test, y_test)
+
+    trained_X, trained_y = training_data()
+    learned = _score_model(trained_X, trained_y, X_test, y_test)
+    approved_count = sum(1 for row in feedback_rows("approved")
+                         if row.get("corrected_aspect") in ASPECTS)
+
+    result = {
+        "baseline": baseline,
+        "learned": learned,
+        "accuracy": learned["accuracy"],
+        "macro_precision": learned["macro_precision"],
+        "macro_recall": learned["macro_recall"],
+        "macro_f1": learned["macro_f1"],
+        "labels": list(ASPECTS),
+        "confusion_matrix": learned["confusion_matrix"],
+        "report": learned["report"],
+        "training_examples": len(trained_X),
+        "approved_corrections": approved_count,
+        "test_examples": len(test_examples),
+        "test_set": "data/aspect_test_set.csv",
+    }
     with connect() as db:
-        db.execute("""INSERT INTO evaluation_runs(created_at,accuracy,macro_f1,training_examples,approved_corrections)
-                      VALUES(?,?,?,?,?)""",
-                   (datetime.now(timezone.utc).isoformat(), accuracy, macro,
-                    len(X_train), len(approved)))
+        db.execute("""INSERT INTO evaluation_runs(
+            created_at,accuracy,macro_f1,training_examples,approved_corrections,
+            baseline_accuracy,baseline_macro_f1,macro_precision,macro_recall
+        ) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (datetime.now(timezone.utc).isoformat(), learned["accuracy"], learned["macro_f1"],
+         len(trained_X), approved_count, baseline["accuracy"], baseline["macro_f1"],
+         learned["macro_precision"], learned["macro_recall"]))
     return result
 
 def summary():
