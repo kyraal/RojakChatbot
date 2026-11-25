@@ -7,3 +7,4 @@ gensim>=4.3
 streamlit-mic-recorder>=0.0.8
 streamlit>=1.40.0
 SpeechRecognition
+pytest>=7.0
