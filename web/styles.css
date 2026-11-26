@@ -58,3 +58,5 @@
 @media(prefers-reduced-motion:reduce){.voice-preview.listening .voice-wave i,#voice-button.recording{animation:none}}
 
 .suggestion-prompt{font-size:.76rem;color:#526c5a;margin:6px 0 2px 35px;font-weight:700}.feedback-wrap .quick-replies{margin:5px 0 8px 0}.feedback-wrap .quick-replies button{font-size:.72rem}
+
+.response-time{font-size:.65rem;color:#87958b;margin-top:7px;text-align:right}.voice-top .muted{font-size:.72rem;color:#e2eee4}
