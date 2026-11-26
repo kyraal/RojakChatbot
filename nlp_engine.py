@@ -8,7 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, precision_score, recall_score, f1_score
 
 
 def _find_col(cols, candidates):
@@ -123,15 +123,40 @@ class ReviewAssistant:
         except Exception: stems=tokens
         return {'cleaned':cleaned,'tokens':tokens,'stems':stems}
 
-    def pos_tag(self,text):
+    def pos_tag(self, text):
+        """Tag English and mixed-language tokens with NLTK's English Penn tagger.
+
+        This is an exploratory POS view: the pretrained tagger is English-centric
+        and is not a Malay-specific grammatical model.
+        """
+        text = str(text or "").strip()
+        if not text:
+            return []
         try:
             import nltk
-            try: nltk.data.find('taggers/averaged_perceptron_tagger_eng')
-            except LookupError: nltk.download('averaged_perceptron_tagger_eng',quiet=True)
-            try: nltk.data.find('tokenizers/punkt_tab')
-            except LookupError: nltk.download('punkt_tab',quiet=True)
-            return nltk.pos_tag(nltk.word_tokenize(text))
-        except Exception as e: return f"POS tagging unavailable: {e}"
+            try:
+                nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+            except LookupError:
+                if not nltk.download("averaged_perceptron_tagger_eng", quiet=True):
+                    raise RuntimeError("NLTK English POS model could not be downloaded")
+            tokens = nltk.tokenize.TreebankWordTokenizer().tokenize(text)
+            tagged = nltk.pos_tag(tokens, lang="eng")
+            descriptions = {
+                "NN": "singular noun", "NNS": "plural noun", "NNP": "proper noun",
+                "NNPS": "plural proper noun", "VB": "base verb", "VBD": "past-tense verb",
+                "VBG": "gerund / present participle", "VBN": "past participle",
+                "VBP": "present-tense verb", "VBZ": "third-person verb",
+                "JJ": "adjective", "JJR": "comparative adjective", "JJS": "superlative adjective",
+                "RB": "adverb", "RBR": "comparative adverb", "RBS": "superlative adverb",
+                "PRP": "personal pronoun", "DT": "determiner", "IN": "preposition / conjunction",
+                "CC": "coordinating conjunction", "MD": "modal", "CD": "number",
+                "RP": "particle", "UH": "interjection"
+            }
+            return [{"token": token, "tag": tag, "description": descriptions.get(tag, "other grammatical role")}
+                    for token, tag in tagged]
+        except Exception as e:
+            return {"error": f"POS tagging unavailable: {e}",
+                    "note": "Install NLTK and its averaged_perceptron_tagger_eng resource, then try again."}
 
     def wsd(self,word,context):
         try:
@@ -143,15 +168,35 @@ class ReviewAssistant:
             return {'synset':str(syn),'definition':syn.definition() if syn else 'No sense found'}
         except Exception as e: return f"WSD unavailable: {e}"
 
-    def lda_topics(self,n_topics=3):
-        vec=CountVectorizer(stop_words='english',ngram_range=(1,2),max_df=.95,min_df=2,max_features=1500)
-        X=vec.fit_transform(self.df.clean)
-        if X.shape[1]==0: return 'Not enough vocabulary for topic modelling.'
+    def lda_topics(self, n_topics=4):
+        """Discover recurring review themes with LDA; topics are exploratory, not labels."""
         from sklearn.decomposition import LatentDirichletAllocation
-        lda=LatentDirichletAllocation(n_components=n_topics,random_state=42,learning_method='batch',max_iter=8)
-        lda.fit(X); names=vec.get_feature_names_out(); result=[]
-        for i,topic in enumerate(lda.components_): result.append({'topic':i+1,'keywords':[names[j] for j in topic.argsort()[-8:][::-1]]})
-        return result
+        stop_words = {
+            "the", "and", "for", "with", "this", "that", "was", "are", "is", "it",
+            "to", "of", "in", "on", "at", "my", "very", "so", "but", "not", "you",
+            "ni", "tu", "yang", "dan", "dengan", "untuk", "tak", "saya", "dia",
+            "ada", "pun", "je", "lah", "ke", "nya", "ini", "itu", "dah", "sangat"
+        }
+        vec = CountVectorizer(stop_words=list(stop_words), ngram_range=(1, 2),
+                              max_df=0.98, min_df=2, max_features=2000)
+        X = vec.fit_transform(self.df.clean)
+        if X.shape[1] == 0:
+            return {"topics": [], "error": "Not enough repeated vocabulary for topic modelling."}
+        topic_count = max(1, min(int(n_topics), 6, X.shape[0], X.shape[1]))
+        lda = LatentDirichletAllocation(n_components=topic_count, random_state=42,
+                                        learning_method="batch", max_iter=12)
+        document_topics = lda.fit_transform(X)
+        names = vec.get_feature_names_out()
+        results = []
+        for i, topic in enumerate(lda.components_):
+            keywords = [str(names[j]) for j in topic.argsort()[-8:][::-1]]
+            assigned = np.argmax(document_topics, axis=1)
+            indices = np.where(assigned == i)[0]
+            examples = [str(self.df.iloc[j].review).strip()[:180] for j in indices[:3]]
+            results.append({"topic": i + 1, "keywords": keywords,
+                            "review_count": int(len(indices)), "examples": examples})
+        return {"topics": results, "document_count": int(X.shape[0]),
+                "note": "LDA discovers word co-occurrence patterns. Topic keywords need human interpretation; they are not verified product categories."}
 
     def train_word2vec(self):
         try:
@@ -177,24 +222,64 @@ class ReviewAssistant:
         return ' '.join(out)+"\n\n(Experimental Markov output; not a factual chatbot answer.)"
 
     def evaluate_sentiment(self):
-        data=self.df[self.df.sentiment.isin(['positive','neutral','negative'])].copy()
-        counts=data.sentiment.value_counts()
-        if len(data)<15 or counts.min()<2: return {'accuracy':0.0,'report':'Not enough labelled examples in each class for a meaningful stratified split.','confusion_matrix':[[0]],'labels':['insufficient data']}
-        X_train,X_test,y_train,y_test=train_test_split(data.review,data.sentiment,test_size=.25,random_state=42,stratify=data.sentiment)
-        model=Pipeline([('features',FeatureUnion([('word',TfidfVectorizer(ngram_range=(1,2),min_df=1)),('char',TfidfVectorizer(analyzer='char_wb',ngram_range=(3,5),min_df=1,max_features=25000))])),('clf',LogisticRegression(max_iter=1000,class_weight='balanced'))])
-        # Human-labelled corrections may supplement training data only; the held-out test split stays untouched.
-        corrections_path=Path('corrections.csv')
-        if corrections_path.exists():
-            try:
-                corrections=pd.read_csv(corrections_path).dropna(subset=['sentiment_label'])
-                corrections=corrections[corrections.sentiment_label.isin(['positive','neutral','negative'])]
-                if not corrections.empty:
-                    X_train=pd.concat([X_train, corrections['question'].fillna('').astype(str)], ignore_index=True)
-                    y_train=pd.concat([y_train, corrections['sentiment_label'].astype(str)], ignore_index=True)
-            except Exception:
-                pass
-        model.fit(X_train,y_train); pred=model.predict(X_test); labels=['negative','neutral','positive']
-        return {'accuracy':accuracy_score(y_test,pred),'report':classification_report(y_test,pred,labels=labels,zero_division=0),'confusion_matrix':confusion_matrix(y_test,pred,labels=labels).tolist(),'labels':labels}
+        """Evaluate text-based sentiment classification against rating-derived proxy labels.
+
+        Ratings are weak labels, not human annotations of the review wording.
+        The held-out split is not used to fit the model.
+        """
+        data = self.df[self.df.sentiment.isin(["positive", "neutral", "negative"])].copy()
+        labels = ["negative", "neutral", "positive"]
+        counts = data.sentiment.value_counts().reindex(labels, fill_value=0).to_dict()
+        if len(data) < 15 or min(counts.values()) < 2:
+            return {"available": False, "accuracy": None, "macro_precision": None,
+                    "macro_recall": None, "macro_f1": None, "report": {},
+                    "confusion_matrix": [], "labels": labels, "class_counts": counts,
+                    "note": "Not enough rating-labelled examples in every class for a stratified evaluation."}
+        X_train, X_test, y_train, y_test = train_test_split(
+            data.review.astype(str), data.sentiment, test_size=0.25,
+            random_state=42, stratify=data.sentiment
+        )
+        model = Pipeline([
+            ("features", FeatureUnion([
+                ("word", TfidfVectorizer(ngram_range=(1, 2), min_df=1, sublinear_tf=True)),
+                ("char", TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5),
+                                         min_df=1, max_features=25000, sublinear_tf=True))
+            ])),
+            ("clf", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))
+        ])
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+        return {
+            "available": True,
+            "accuracy": float(accuracy_score(y_test, predictions)),
+            "macro_precision": float(precision_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+            "macro_recall": float(recall_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+            "macro_f1": float(f1_score(y_test, predictions, labels=labels, average="macro", zero_division=0)),
+            "report": classification_report(y_test, predictions, labels=labels, zero_division=0, output_dict=True),
+            "confusion_matrix": confusion_matrix(y_test, predictions, labels=labels).tolist(),
+            "labels": labels, "class_counts": counts,
+            "training_examples": int(len(X_train)), "test_examples": int(len(X_test)),
+            "note": "Sentiment text classifier evaluated against labels derived from star ratings (1–2 negative, 3 neutral, 4–5 positive). Ratings are proxy labels, not manually annotated sentiment."
+        }
+
+    def sentiment_analysis(self):
+        """Return rating-based review sentiment distribution and text-model evaluation."""
+        distribution = self.sentiment_distribution()
+        counts = {str(label): int(value) for label, value in distribution.items()}
+        total = sum(counts.values())
+        labelled = sum(counts.get(label, 0) for label in ("positive", "neutral", "negative"))
+        return {
+            "total_reviews": int(len(self.df)),
+            "labelled_reviews": int(labelled),
+            "distribution": counts,
+            "percentages": {
+                label: round((counts.get(label, 0) / labelled) * 100, 1) if labelled else 0.0
+                for label in ("positive", "neutral", "negative")
+            },
+            "evaluation": self.evaluate_sentiment(),
+            "label_definition": "1–2 stars = negative; 3 stars = neutral; 4–5 stars = positive.",
+            "caveat": "Star ratings are used as proxy sentiment labels. A rating may not perfectly match the wording of its review."
+        }
 
 
 def save_correction(question,response,label):
