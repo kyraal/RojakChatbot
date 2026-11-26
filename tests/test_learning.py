@@ -48,4 +48,14 @@ def test_evaluation_compares_baseline_and_learned_model(tmp_path, monkeypatch):
     assert {'accuracy', 'macro_f1'} <= set(result['baseline'])
     assert {'accuracy', 'macro_precision', 'macro_recall', 'macro_f1'} <= set(result['learned'])
     assert len(result['confusion_matrix']) == len(learning.ASPECTS)
+    assert set(result['three_models']) == {'rule_based', 'supervised', 'hybrid'}
+    for model_result in result['three_models'].values():
+        assert 0.0 <= model_result['accuracy'] <= 1.0
+        assert 0.0 <= model_result['macro_f1'] <= 1.0
     assert learning.summary()['latest_evaluation'] is not None
+
+
+
+def test_classifier_character_features_tolerate_a_small_typo():
+    # Character n-gram TF-IDF should still recognise the surrounding fabric context.
+    assert learning.predict_aspect("kaim ni panas tak")["aspect"] == "fabric"
