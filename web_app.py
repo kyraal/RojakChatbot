@@ -53,12 +53,14 @@ def load_bot():
 
 BOT = load_bot()
 WHISPER_MODEL = None
+WHISPER_PROCESSOR = None
+WHISPER_PIPELINE = None
 WHISPER_LOCK = threading.Lock()
 
 
 def transcribe_with_whisper(audio_b64):
-    """Transcribe multilingual audio with automatic language detection."""
-    global WHISPER_MODEL
+    """Transcribe Malaysian Malay, English and Manglish with Mesolitica Whisper."""
+    global WHISPER_MODEL, WHISPER_PROCESSOR, WHISPER_PIPELINE
     if not isinstance(audio_b64, str) or not audio_b64:
         raise ValueError("No recorded audio was provided")
     try:
@@ -69,19 +71,61 @@ def transcribe_with_whisper(audio_b64):
         raise ValueError("Recording is too large. Please record a shorter question (under 15 MB).")
     if len(audio_bytes) < 100:
         raise ValueError("The recording is empty or too short")
-    from faster_whisper import WhisperModel
+
+    # PyAV decodes the browser's WebM/Opus recording to the 16 kHz waveform
+    # expected by Whisper's feature extractor.
+    import av
+    import numpy as np
+    import torch
+    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+
     with WHISPER_LOCK:
-        if WHISPER_MODEL is None:
-            model_size = __import__("os").environ.get("WHISPER_MODEL_SIZE", "small")
-            WHISPER_MODEL = WhisperModel(model_size, device="cpu", compute_type="int8")
-        segments, info = WHISPER_MODEL.transcribe(
-            io.BytesIO(audio_bytes), language=None, task="transcribe", beam_size=5, vad_filter=True
-        )
-        transcript = " ".join(segment.text.strip() for segment in segments).strip()
+        if WHISPER_PIPELINE is None:
+            model_id = "mesolitica/malaysian-whisper-base"
+            WHISPER_PROCESSOR = AutoProcessor.from_pretrained(model_id)
+            WHISPER_MODEL = AutoModelForSpeechSeq2Seq.from_pretrained(
+                model_id,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True
+            )
+            WHISPER_MODEL.eval()
+            WHISPER_PIPELINE = pipeline(
+                "automatic-speech-recognition",
+                model=WHISPER_MODEL,
+                tokenizer=WHISPER_PROCESSOR.tokenizer,
+                feature_extractor=WHISPER_PROCESSOR.feature_extractor,
+                device=-1,
+                chunk_length_s=30,
+                stride_length_s=5
+            )
+
+        container = av.open(io.BytesIO(audio_bytes))
+        audio_stream = next((stream for stream in container.streams if stream.type == "audio"), None)
+        if audio_stream is None:
+            raise ValueError("No audio track was found in the recording.")
+        resampler = av.AudioResampler(format="fltp", layout="mono", rate=16000)
+        frames = []
+        for frame in container.decode(audio_stream):
+            converted = resampler.resample(frame)
+            if converted:
+                frames.extend(converted if isinstance(converted, list) else [converted])
+        tail = resampler.resample(None)
+        if tail:
+            frames.extend(tail if isinstance(tail, list) else [tail])
+        if not frames:
+            raise ValueError("No speech audio could be decoded. Please record again.")
+        waveform = np.concatenate([frame.to_ndarray().reshape(-1) for frame in frames]).astype(np.float32)
+        if waveform.size < 1600:
+            raise ValueError("The recording is too short. Please speak for at least one second.")
+
+        # No language is forced: Whisper performs its own language detection.
+        result = WHISPER_PIPELINE(waveform, generate_kwargs={"task": "transcribe"})
+        transcript = (result.get("text") or "").strip()
+
     if not transcript:
         raise ValueError("Whisper could not detect clear speech. Please try again.")
-    return {"text": transcript, "language": info.language,
-            "language_probability": round(float(info.language_probability), 3)}
+    return {"text": transcript, "language": "auto-detected",
+            "model": "mesolitica/malaysian-whisper-base"}
 
 
 def matching_order(text):
