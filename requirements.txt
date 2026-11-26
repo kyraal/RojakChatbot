@@ -8,3 +8,4 @@ streamlit-mic-recorder>=0.0.8
 streamlit>=1.40.0
 SpeechRecognition
 pytest>=7.0
+faster-whisper>=1.1.0
