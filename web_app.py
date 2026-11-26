@@ -214,6 +214,14 @@ def localize_reply(reply, language):
         "Send me a question and I'll help.": ("Hantarkan soalan anda dan saya akan bantu.", "Send je your question, nanti saya bantu."),
         "I can help with what customers said about fabric, stitching, colour and delivery. Which part would you like to know about?": ("Saya boleh bantu tentang komen pelanggan mengenai kain, jahitan, warna dan penghantaran. Bahagian mana yang anda ingin tahu?", "I boleh bantu pasal fabric, stitching, colour and delivery. Which part you nak tahu?"),
         "I do not have a verified store return policy in the review dataset, so I cannot confirm the return window or conditions. Please check the seller official policy or contact the store directly.": ("Dataset ulasan tidak mengandungi polisi pemulangan yang disahkan. Sila semak polisi rasmi penjual atau hubungi kedai secara terus.", "Dataset reviews tak ada verified return policy, so please check seller's official policy atau contact kedai terus."),
+        "I don't have reliable sizing feedback for this specific women's cut yet. The available reviews are not tagged by style, so I wouldn't want to promise that its fit matches another garment. Please compare the garment measurements with your own before ordering.": ("Saya belum mempunyai maklum balas saiz yang boleh dipercayai untuk potongan ini. Ulasan yang tersedia tidak diasingkan mengikut gaya, jadi sila bandingkan ukuran pakaian dengan ukuran anda sebelum membuat pesanan.", "I tak ada sizing feedback yang reliable untuk cut ni lagi. Reviews tak diasingkan ikut style, so please compare garment measurements dengan ukuran sendiri sebelum order."),
+        "Sure—I can check your order. Attach it from My Orders or paste its order ID or parcel code here, and tell me what you'd like to know.": ("Boleh, saya boleh semak pesanan anda. Lampirkan pesanan melalui My Orders atau tampal ID pesanan atau kod bungkusan di sini.", "Sure, I boleh check order you. Attach dari My Orders atau paste order ID / parcel code kat sini."),
+        "I found your order ": ("Saya jumpa pesanan anda ", "I found order you "),
+        " for ": (" untuk ", " for "),
+        ". It is ": (". Statusnya ialah ", ". Status dia "),
+        "Parcel code: ": ("Kod bungkusan: ", "Parcel code: "),
+        ". Estimated delivery/result: ": (". Anggaran penghantaran / keputusan: ", ". Estimated delivery: "),
+        ". What else would you like to know?": (". Apa lagi yang anda ingin tahu?", ". Anything else you nak tahu?")
         "Sorry, I couldn't connect to the shop assistant. Please try again.": ("Maaf, saya tidak dapat menyambung kepada pembantu kedai. Sila cuba lagi.", "Sorry, connection problem tadi. Please try again ya.")
     }
     for source, versions in translations.items():
