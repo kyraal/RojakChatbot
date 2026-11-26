@@ -100,6 +100,9 @@ $("#evaluate-retrieval").addEventListener("click",async()=>{
   try{
     const r=await api("/api/admin/evaluate-retrieval",{},60000),pct=v=>(v*100).toFixed(1)+"%";
     node.innerHTML="<p>Test queries: "+r.query_count+" · Top K: "+r.top_k+"</p><table><tr><th>Metric</th><th>Score</th></tr><tr><td>Precision@5</td><td>"+pct(r.precision_at_5)+"</td></tr><tr><td>Recall@5</td><td>"+pct(r.recall_at_5)+"</td></tr><tr><td>MRR</td><td>"+r.mrr.toFixed(3)+"</td></tr></table>";
+    const detailTitle=document.createElement("h3");detailTitle.textContent="Per-query retrieval results";node.append(detailTitle);
+    const detailTable=document.createElement("table");detailTable.innerHTML="<tr><th>Query</th><th>Relevant review IDs</th><th>Retrieved IDs</th><th>P@5</th><th>R@5</th><th>RR</th></tr>";
+    r.results.forEach(row=>{const tr=document.createElement("tr");[row.query,row.relevant_review_ids.join(", "),row.retrieved_review_ids.join(", "),pct(row.precision_at_5),pct(row.recall_at_5),row.mrr.toFixed(3)].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});detailTable.append(tr)});node.append(detailTable);
     const history=$("#retrieval-history");history.replaceChildren();
     if(r.history?.length){const table=document.createElement("table");table.innerHTML="<tr><th>Run</th><th>P@5</th><th>R@5</th><th>MRR</th><th>Queries</th></tr>";r.history.forEach(x=>{const tr=document.createElement("tr");[new Date(x.created_at).toLocaleString(),pct(x.precision_at_5),pct(x.recall_at_5),x.mrr.toFixed(3),x.query_count].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});table.append(tr)});history.append(table)}
   }catch(error){showError(node,error.message)}
