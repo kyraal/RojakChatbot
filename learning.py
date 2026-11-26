@@ -317,7 +317,7 @@ def evaluate_classifier():
     probabilities = classifier.predict_proba(test_matrix)
     classes = list(classifier.classes_)
     supervised_predictions = [classes[int(np.argmax(row))] for row in probabilities]
-    rule_predictions = [_rule_based_aspect(q) or "quality" for q, _ in test_examples]
+    rule_predictions = [_rule_based_aspect(q) or "unknown" for q, _ in test_examples]
     hybrid_predictions = []
     for (question, _), probs, supervised in zip(test_examples, probabilities, supervised_predictions):
         confidence = float(np.max(probs))
