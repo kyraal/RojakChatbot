@@ -10,6 +10,22 @@
 <section><div class="row" style="justify-content:space-between"><h2>Retrieval evaluation</h2><button id="evaluate-retrieval">Evaluate retrieval</button></div>
 <p class="muted">Measures whether the five reviews retrieved for each query match the starter relevance labels in data/retrieval_test_set.csv. Review IDs refer to the dataset No. column. Please validate these starter labels with classmates before treating the scores as final.</p>
 <div id="retrieval-evaluation">No retrieval evaluation run yet.</div><h3>Retrieval evaluation history</h3><div id="retrieval-history"></div></section>
+<section>
+<div class="row" style="justify-content:space-between"><h2>Sentiment analysis</h2><button id="analyse-sentiment" class="secondary">Analyse reviews</button></div>
+<p class="muted">Review sentiment is initially labelled using star ratings (1–2 negative, 3 neutral, 4–5 positive). A TF-IDF + Logistic Regression text classifier is evaluated on a held-out split. Ratings are proxy labels, not human-annotated sentiment.</p>
+<div id="sentiment-results">Select Analyse reviews to calculate the distribution and evaluate the text classifier.</div>
+</section>
+<section>
+<div class="row" style="justify-content:space-between"><h2>LDA topic modelling</h2><button id="analyse-topics" class="secondary">Discover topics</button></div>
+<p class="muted">Latent Dirichlet Allocation groups recurring word patterns across the review corpus. Topics are exploratory; interpret the keywords rather than treating them as verified product categories.</p>
+<div id="topic-results">Select Discover topics to run LDA on the review dataset.</div>
+</section>
+<section>
+<h2>Part-of-speech (POS) tagging demo</h2>
+<p class="muted">Enter a sentence to identify nouns, verbs, adjectives and other grammatical roles. The pretrained NLTK tagger is English-centric, so BM/Rojak tags are exploratory rather than Malay-specific grammatical analysis.</p>
+<div class="row"><input id="pos-input" style="flex:1;min-width:240px" value="Kain ni sangat comfortable and the material feels soft." aria-label="Sentence to tag"><button id="run-pos">Tag sentence</button></div>
+<div id="pos-results">Enter a sentence and select Tag sentence.</div>
+</section>
 <script>
 "use strict";
 const $ = (selector) => document.querySelector(selector);
@@ -105,6 +121,49 @@ $("#evaluate-retrieval").addEventListener("click",async()=>{
     r.results.forEach(row=>{const tr=document.createElement("tr");[row.query,row.relevant_review_ids.join(", "),row.retrieved_review_ids.join(", "),pct(row.precision_at_5),pct(row.recall_at_5),row.mrr.toFixed(3)].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});detailTable.append(tr)});node.append(detailTable);
     const history=$("#retrieval-history");history.replaceChildren();
     if(r.history?.length){const table=document.createElement("table");table.innerHTML="<tr><th>Run</th><th>P@5</th><th>R@5</th><th>MRR</th><th>Queries</th></tr>";r.history.forEach(x=>{const tr=document.createElement("tr");[new Date(x.created_at).toLocaleString(),pct(x.precision_at_5),pct(x.recall_at_5),x.mrr.toFixed(3),x.query_count].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});table.append(tr)});history.append(table)}
+  }catch(error){showError(node,error.message)}
+});
+$("#analyse-sentiment").addEventListener("click",async()=>{
+  const node=$("#sentiment-results");node.textContent="Analysing review sentiment…";
+  try{
+    const r=await api("/api/admin/sentiment",{},60000),e=r.evaluation;
+    node.replaceChildren();
+    const summary=document.createElement("p");summary.textContent="Reviews: "+r.total_reviews+" · With usable rating labels: "+r.labelled_reviews;node.append(summary);
+    const table=document.createElement("table");table.innerHTML="<tr><th>Sentiment</th><th>Review count</th><th>Share</th></tr>";
+    ["positive","neutral","negative","unknown"].forEach(label=>{const tr=document.createElement("tr");[label,r.distribution[label]??0,label==="unknown"?"—":(r.percentages[label]??0).toFixed(1)+"%"].forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=v;tr.append(td)});table.append(tr)});node.append(table);
+    const h=document.createElement("h3");h.textContent="Text classifier evaluation";node.append(h);
+    if(!e.available){const p=document.createElement("p");p.textContent=e.note;node.append(p);return;}
+    const metrics=document.createElement("p");metrics.textContent="Accuracy "+(e.accuracy*100).toFixed(1)+"% · Macro precision "+(e.macro_precision*100).toFixed(1)+"% · Macro recall "+(e.macro_recall*100).toFixed(1)+"% · Macro-F1 "+(e.macro_f1*100).toFixed(1)+"%";node.append(metrics);
+    const details=document.createElement("p");details.className="muted";details.textContent="Training examples: "+e.training_examples+" · Held-out test examples: "+e.test_examples;node.append(details);
+    const report=document.createElement("pre");report.textContent=JSON.stringify(e.report,null,2);node.append(report);
+    const caveat=document.createElement("p");caveat.className="muted";caveat.textContent=r.caveat;node.append(caveat);
+  }catch(error){showError(node,error.message)}
+});
+$("#analyse-topics").addEventListener("click",async()=>{
+  const node=$("#topic-results");node.textContent="Running LDA topic modelling…";
+  try{
+    const r=await api("/api/admin/topics",null,60000);node.replaceChildren();
+    if(r.error){showError(node,r.error);return;}
+    const info=document.createElement("p");info.textContent="Documents analysed: "+r.document_count+" · Topics discovered: "+r.topics.length;node.append(info);
+    r.topics.forEach(topic=>{
+      const article=document.createElement("article");article.className="item";
+      const heading=document.createElement("div");heading.className="question";heading.textContent="Topic "+topic.topic+" · "+topic.review_count+" reviews assigned";
+      const words=document.createElement("p");words.textContent="Keywords: "+topic.keywords.join(", ");
+      article.append(heading,words);
+      if(topic.examples?.length){const sample=document.createElement("div");sample.className="muted";sample.textContent="Example reviews: "+topic.examples.join(" | ");article.append(sample)}
+      node.append(article);
+    });
+    const note=document.createElement("p");note.className="muted";note.textContent=r.note||"";node.append(note);
+  }catch(error){showError(node,error.message)}
+});
+$("#run-pos").addEventListener("click",async()=>{
+  const node=$("#pos-results"),value=$("#pos-input").value.trim();node.textContent="Tagging sentence…";
+  try{
+    const r=await api("/api/admin/pos",{text:value});
+    node.replaceChildren();
+    const table=document.createElement("table");table.innerHTML="<tr><th>Token</th><th>POS tag</th><th>Meaning</th></tr>";
+    r.tokens.forEach(item=>{const tr=document.createElement("tr");[item.token,item.tag,item.description].forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=v;tr.append(td)});table.append(tr)});
+    node.append(table);const note=document.createElement("p");note.className="muted";note.textContent=r.note;node.append(note);
   }catch(error){showError(node,error.message)}
 });
 load();
