@@ -159,7 +159,7 @@ $("#analyse-topics").addEventListener("click",async()=>{
 $("#run-pos").addEventListener("click",async()=>{
   const node=$("#pos-results"),value=$("#pos-input").value.trim();node.textContent="Tagging sentence…";
   try{
-    const r=await api("/api/admin/pos",{text:value});
+    const r=await api("/api/admin/pos",{text:value},60000);
     node.replaceChildren();
     const table=document.createElement("table");table.innerHTML="<tr><th>Token</th><th>POS tag</th><th>Meaning</th></tr>";
     r.tokens.forEach(item=>{const tr=document.createElement("tr");[item.token,item.tag,item.description].forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=v;tr.append(td)});table.append(tr)});
