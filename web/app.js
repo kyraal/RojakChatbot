@@ -330,7 +330,7 @@ async function startVoice() {
       state.voiceText = result.text || "";
       $("#voice-transcript").textContent = state.voiceText || "No speech detected.";
       $("#voice-use-text").hidden = !state.voiceText;
-      setVoiceStatus("Whisper transcript ready · detected language: " + (result.language || "unknown"));
+      setVoiceStatus("Whisper ready · " + (result.language || "language unknown") + " · " + ((result.processing_time_ms || 0) / 1000).toFixed(1) + "s");
     } catch (error) {
       $("#voice-transcript").textContent = error.message;
       $("#voice-use-text").hidden = true;
