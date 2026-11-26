@@ -29,7 +29,7 @@ Open the local URL printed by Streamlit (usually http://localhost:8501).
 
 1. Select **Baju Melayu Collection**.
 2. Choose a suggested prompt or type a question in English, BM or Rojak.
-3. Optional: record a voice question; Google speech recognition is online and uses `ms-MY` as a best-effort setting. Mixed-language transcription may be imperfect.
+3. Optional: record a voice question; the local `faster-whisper` backend automatically detects language and transcribes English, Bahasa Melayu and mixed speech. Code-switching accuracy should be tested with real recordings.
 4. Preprocessing cleans text and retains useful informal spellings.
 5. Reviews are ranked using a blend of word n-gram and character n-gram TF-IDF cosine similarity.
 6. The assistant summarises the retrieved themes in English and shows the original review evidence.
@@ -39,7 +39,7 @@ Open the local URL printed by Streamlit (usually http://localhost:8501).
 
 | Requirement / syllabus | Initial implementation | Notes |
 |---|---|---|
-| Speech-to-text | Optional microphone + SpeechRecognition Google recognizer | Requires microphone permission and internet; code-switching can be imperfect. |
+| Speech-to-text | Optional microphone + local faster-whisper (automatic language detection) | Requires microphone permission and internet; code-switching can be imperfect. |
 | Slang / informal language | Character n-gram TF-IDF retrieval + regex normalisation | No manually hardcoded slang dictionary. This handles spelling variation statistically, not guaranteed slang understanding. |
 | Human correction | Feedback form writes `corrections.csv` | Saved feedback is not automatically a verified fact or automatically retrained in this build. |
 | Knowledge-based answers | Review corpus retrieval + cosine similarity + evidence display | Answers are bounded by the customer reviews, not seller policy or live order data. |
@@ -100,7 +100,7 @@ Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for 
 - **Human approval:** chat corrections enter a SQLite queue as pending. Only an explicit admin approval can add a corrected aspect example or vocabulary mapping.
 - **Retrieval integration:** incoming questions and the review index use the same approved vocabulary normalization. After an approval, the word and character TF-IDF matrices are rebuilt from the original review corpus. The original review text remains the evidence shown to users.
 - **Learning dashboard:** pending / approved / rejected counts, vocabulary size, training-example count and classifier evaluation history.
-- **Speech input:** the browser speech-recognition language can be selected (BM or English variants); users can review/edit the transcript in the chat input before sending. Availability and accuracy depend on browser support and the browser's speech service.
+- **Speech input:** the browser records audio with MediaRecorder and sends it to a local faster-whisper model; language is detected automatically, so users do not select BM/English/Rojak. Users can review/edit the transcript before sending. First transcription downloads the selected Whisper model; default is `small` on CPU with INT8. Set `WHISPER_MODEL_SIZE=tiny` for a faster, less accurate option.
 
 ### Important data and evaluation safeguards
 
@@ -120,3 +120,14 @@ Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for 
 5. For voice, test the same recordings in BM and English, manually transcribe references, and compare Word Error Rate (WER), latency and user preference across supported browsers.
 6. Report actual sample sizes and scores from your test runs. Do not invent improvement if the metrics do not improve.
 
+
+
+### Multilingual speech-to-text setup
+
+Install the updated dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+The HTML chat uses local faster-whisper with automatic language detection. The first voice transcription downloads the Whisper model and may take longer; later recordings reuse it while the Python server remains running. The default model is `small` with CPU INT8. For a faster, less accurate first test, set `WHISPER_MODEL_SIZE=tiny` before starting the server. No browser language selector or Whisper API key is required. Rojak code-switching is not a separate Whisper language, so validate transcripts with Malaysian English/BM recordings.
