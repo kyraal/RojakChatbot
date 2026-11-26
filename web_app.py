@@ -284,11 +284,52 @@ def localize_reply(reply, language):
     return reply
 
 
+def sentiment_answer(language):
+    """Answer corpus-wide sentiment questions using available review star ratings."""
+    counts = BOT.sentiment_distribution().to_dict()
+    positive = int(counts.get("positive", 0))
+    neutral = int(counts.get("neutral", 0))
+    negative = int(counts.get("negative", 0))
+    total = positive + neutral + negative
+    if total == 0:
+        reply = "The review dataset does not contain enough rating information to summarise customer sentiment."
+    else:
+        pos_pct = round(positive / total * 100)
+        neu_pct = round(neutral / total * 100)
+        neg_pct = round(negative / total * 100)
+        if language == "ms":
+            reply = (f"Berdasarkan {total} ulasan yang mempunyai rating, {pos_pct}% positif, "
+                     f"{neu_pct}% neutral dan {neg_pct}% negatif. Angka ini menggunakan rating bintang "
+                     f"sebagai petunjuk sentimen, bukan label sentimen yang disahkan secara manual.")
+        elif language == "rojak":
+            reply = (f"Based on {total} reviews with ratings, {pos_pct}% positive, {neu_pct}% neutral "
+                     f"and {neg_pct}% negative. Ini guna star ratings sebagai sentiment proxy, bukan "
+                     f"manual sentiment labels.")
+        else:
+            reply = (f"Across {total} reviews with ratings, {pos_pct}% are positive, {neu_pct}% neutral "
+                     f"and {neg_pct}% negative. These figures use star ratings as sentiment indicators, "
+                     f"not manually verified sentiment labels.")
+    evidence = []
+    for sentiment in ("positive", "negative"):
+        rows = BOT.df[ BOT.df.sentiment == sentiment ].head(1)
+        if not rows.empty:
+            row = rows.iloc[0]
+            evidence.append({"review": str(row.review), "rating": None if row.rating != row.rating else int(row.rating)})
+    return {"reply": reply, "evidence": evidence, "type": "sentiment"}
+
+
 def respond(text, context=None):
     question = " ".join(str(text).strip().split())[:1000]
     language = detect_language(question)
-    result = _respond_base(question, context)
-    result["reply"] = localize_reply(result.get("reply", ""), language)
+    sentiment_question = bool(re.search(
+        r"\\b(sentiment|satisfied|satisfaction|happy with|positive reviews|negative reviews|overall feedback|customer feedback)\\b",
+        question.lower()
+    ))
+    if sentiment_question:
+        result = sentiment_answer(language)
+    else:
+        result = _respond_base(question, context)
+        result["reply"] = localize_reply(result.get("reply", ""), language)
     result["language"] = language
     if question and result.get("type") == "reviews":
         try:
