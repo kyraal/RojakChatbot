@@ -246,7 +246,7 @@ def respond(text, context=None):
     result = _respond_base(question, context)
     result["reply"] = localize_reply(result.get("reply", ""), language)
     result["language"] = language
-    if question:
+    if question and result.get("type") == "reviews":
         try:
             prediction = learning.predict_aspect(question)
             alternatives = prediction.get("alternatives", [])
