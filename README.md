@@ -29,7 +29,7 @@ Open the local URL printed by Streamlit (usually http://localhost:8501).
 
 1. Select **Baju Melayu Collection**.
 2. Choose a suggested prompt or type a question in English, BM or Rojak.
-3. Optional: record a voice question; the local `faster-whisper` backend automatically detects language and transcribes English, Bahasa Melayu and mixed speech. Code-switching accuracy should be tested with real recordings.
+3. Optional: record a voice question; the local Mesolitica Malaysian Whisper backend attempts automatic language detection and transcribes English, Bahasa Melayu and mixed speech. Code-switching accuracy should be tested with real recordings.
 4. Preprocessing cleans text and retains useful informal spellings.
 5. Reviews are ranked using a blend of word n-gram and character n-gram TF-IDF cosine similarity.
 6. The assistant summarises the retrieved themes in English and shows the original review evidence.
@@ -39,7 +39,7 @@ Open the local URL printed by Streamlit (usually http://localhost:8501).
 
 | Requirement / syllabus | Initial implementation | Notes |
 |---|---|---|
-| Speech-to-text | Optional microphone + local faster-whisper (automatic language detection) | Requires microphone permission and internet; code-switching can be imperfect. |
+| Speech-to-text | Optional microphone + Mesolitica Malaysian Whisper (`mesolitica/malaysian-whisper-base`) | Requires microphone permission and internet; code-switching can be imperfect. |
 | Slang / informal language | Character n-gram TF-IDF retrieval + regex normalisation | No manually hardcoded slang dictionary. This handles spelling variation statistically, not guaranteed slang understanding. |
 | Human correction | Feedback form writes `corrections.csv` | Saved feedback is not automatically a verified fact or automatically retrained in this build. |
 | Knowledge-based answers | Review corpus retrieval + cosine similarity + evidence display | Answers are bounded by the customer reviews, not seller policy or live order data. |
@@ -100,6 +100,9 @@ Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for 
 - **Human approval:** chat corrections enter a SQLite queue as pending. Only an explicit admin approval can add a corrected aspect example or vocabulary mapping.
 - **Retrieval integration:** incoming questions and the review index use the same approved vocabulary normalization. After an approval, the word and character TF-IDF matrices are rebuilt from the original review corpus. The original review text remains the evidence shown to users.
 - **Learning dashboard:** pending / approved / rejected counts, vocabulary size, training-example count and classifier evaluation history.
+- **Sentiment analysis:** review ratings are converted to proxy labels (1–2 negative, 3 neutral, 4–5 positive). A word + character TF-IDF Logistic Regression model is evaluated on a held-out split; the dashboard shows the rating distribution and classification metrics. Overall-sentiment questions can be answered from the dataset-wide rating distribution.
+- **LDA topic modelling:** Latent Dirichlet Allocation discovers recurring word co-occurrence patterns in the review corpus. The dashboard displays topic keywords, the number of assigned reviews and sample excerpts. Topics require human interpretation and are not verified product categories.
+- **POS tagging:** an NLTK Penn Treebank tagger demo identifies grammatical roles in a user-entered sentence. Its pretrained model is English-centric, so BM/Rojak tags are exploratory and may be inaccurate.
 - **Speech input:** the browser records audio with MediaRecorder and sends it to a local faster-whisper model; language is detected automatically, so users do not select BM/English/Rojak. Users can review/edit the transcript before sending. First transcription downloads the selected Whisper model; default is `small` on CPU with INT8. Set `WHISPER_MODEL_SIZE=tiny` for a faster, less accurate option.
 
 ### Important data and evaluation safeguards
@@ -108,7 +111,7 @@ Open `http://127.0.0.1:8765` for the shop and `http://127.0.0.1:8765/admin` for 
 - Approval of a correction is a human annotation for the aspect classifier; an optional vocabulary phrase is a separate explicit mapping.
 - The classifier starts with a small hand-written seed set. The dashboard compares a seed-only baseline with a model trained on approved corrections using the same separately labelled test set (`data/aspect_test_set.csv`). Test examples are never used for training. This small manually authored set is not representative of all Malaysian Rojak; expand and independently review it before making broad performance claims.
 - The learning database is `data/learning.db` and is local to the machine running the Python server. This workflow is intended for a local classroom demonstration; the admin endpoint has no authentication and should not be exposed publicly as-is.
-- The HTML storefront's products and orders are simulated demo records. The review dataset does not establish those catalogue facts. The assistant must not present a simulated return policy as verified seller policy.
+- The HTML storefront's products and orders are simulated demo records. The review dataset does not establish those catalogue facts. Reviews are not tagged to the three individual storefront products, so review insights apply to the available collection rather than a verified individual style. The assistant must not present a simulated return policy as verified seller policy.
 - The Streamlit app remains available as the original syllabus/demo interface; the new SQLite approval workflow is currently connected to the HTML/Python server.
 
 ### Suggested evaluation before submission
