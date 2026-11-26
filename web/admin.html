@@ -11,30 +11,95 @@
 <p class="muted">Measures whether the five reviews retrieved for each query match the starter relevance labels in data/retrieval_test_set.csv. Review IDs refer to the dataset No. column. Please validate these starter labels with classmates before treating the scores as final.</p>
 <div id="retrieval-evaluation">No retrieval evaluation run yet.</div><h3>Retrieval evaluation history</h3><div id="retrieval-history"></div></section>
 <script>
-const $=s=>document.querySelector(s);let detailedEvaluationHtml=null;const aspects=["fit","fabric","quality","colour","delivery"];
-async function api(url,body){const r=await fetch(url,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});const d=await r.json();if(!r.ok)throw Error(d.error||"Request failed");return d}
-function metric(label,value){return '<div class="card"><div class="metric">'+value+'</div><div class="muted">'+label+'</div></div>'}
-async function load(){
-  $("#queue").textContent="Loading approval queue…";
-  const queueTask=(async()=>{
-    try{
-      const f=await api("/api/admin/feedback");
-      const pending=f.feedback.filter(x=>x.status==="pending");
-      $("#queue").innerHTML=pending.length?pending.map(x=>'<div class="item" data-id="'+x.id+'"><div class="status">Pending · #'+x.id+'</div><div class="question"></div><div class="answer"></div><div class="muted">Classifier guess: '+(x.predicted_aspect||"uncertain")+'</div><div class="row"><div><label>Correct aspect</label><select class="aspect">'+aspects.map(a=>'<option>'+a+'</option>').join("")+'</select></div><div><label>Optional new slang / phrase</label><input class="term" placeholder="e.g. gempak"></div><div><label>Map phrase to</label><select class="vocab">'+aspects.map(a=>'<option>'+a+'</option>').join("")+'</select></div></div><button class="approve">Approve & learn</button><button class="reject">Reject</button></div>').join(""):'<p>No pending corrections. Submit a correction from the chat storefront to populate this queue.</p>';
-      pending.forEach(x=>{const el=document.querySelector('[data-id="'+x.id+'"]');el.querySelector(".question").textContent=x.question;el.querySelector(".answer").textContent="Suggested correction: "+x.correction;el.querySelector(".approve").onclick=()=>review(x,"approved",el);el.querySelector(".reject").onclick=()=>review(x,"rejected",el)});
-    }catch(e){$("#queue").textContent="Could not load approval queue: "+e.message}
-  })();
-  const summaryTask=(async()=>{
-    try{
-      const s=await api("/api/admin/summary");
-      $("#metrics").innerHTML=metric("Corrections",s.feedback_total)+metric("Pending",s.pending)+metric("Approved",s.approved)+metric("Rejected",s.rejected)+metric("Vocabulary entries",s.vocabulary_size)+metric("Training examples",s.training_examples);
-      if(!detailedEvaluationHtml&&s.latest_evaluation)$("#evaluation").innerHTML='<p>Latest: accuracy <b>'+(s.latest_evaluation.accuracy*100).toFixed(1)+'%</b> · macro-F1 <b>'+(s.latest_evaluation.macro_f1*100).toFixed(1)+'%</b> · training examples '+s.latest_evaluation.training_examples+'</p>';
-      $("#history").innerHTML=s.evaluation_history.length?'<table><thead><tr><th>Run</th><th>Accuracy</th><th>Macro-F1</th><th>Training examples</th><th>Approved</th></tr></thead><tbody>'+s.evaluation_history.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleString()+'</td><td>'+(x.accuracy*100).toFixed(1)+'%</td><td>'+(x.macro_f1*100).toFixed(1)+'%</td><td>'+x.training_examples+'</td><td>'+x.approved_corrections+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Run an evaluation to start the history.</p>';
-    }catch(e){$("#metrics").innerHTML='<p>Dashboard summary unavailable: '+e.message+'</p>'}
-  })();
-  await Promise.all([queueTask,summaryTask]);
+"use strict";
+const $ = (selector) => document.querySelector(selector);
+const aspects = ["fit", "fabric", "quality", "colour", "delivery"];
+let detailedEvaluationHtml = null;
+let loading = false;
+async function api(url, body, timeoutMs = 12000) {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {method:body?"POST":"GET",headers:body?{"Content-Type":"application/json"}:{},body:body?JSON.stringify(body):undefined,cache:"no-store",signal:controller.signal});
+    const raw = await response.text(); let data;
+    try { data=JSON.parse(raw); } catch (_) { throw new Error("Server returned invalid JSON (HTTP "+response.status+")."); }
+    if (!response.ok) throw new Error(data.error || ("HTTP "+response.status));
+    return data;
+  } catch(error) { if(error.name==="AbortError") throw new Error("Request timed out after "+(timeoutMs/1000)+" seconds."); throw error; }
+  finally { clearTimeout(timer); }
 }
-async function review(x,decision,el){try{const term=el.querySelector(".term").value.trim();await api("/api/admin/review",{id:x.id,decision,corrected_aspect:el.querySelector(".aspect").value,vocab_term:term||null,vocab_aspect:term?el.querySelector(".vocab").value:null});await load()}catch(e){alert(e.message)}}
-$("#refresh").onclick=load;$("#evaluate").onclick=async()=>{try{const r=await api("/api/admin/evaluate",{});$("#evaluation").innerHTML='<p><b>Fixed test set:</b> '+r.test_examples+' examples</p><table><tr><th>Metric</th><th>Seed-only baseline</th><th>After approved feedback</th></tr><tr><td>Accuracy</td><td>'+(r.baseline.accuracy*100).toFixed(1)+'%</td><td>'+(r.learned.accuracy*100).toFixed(1)+'%</td></tr><tr><td>Macro precision</td><td>'+(r.baseline.macro_precision*100).toFixed(1)+'%</td><td>'+(r.learned.macro_precision*100).toFixed(1)+'%</td></tr><tr><td>Macro recall</td><td>'+(r.baseline.macro_recall*100).toFixed(1)+'%</td><td>'+(r.learned.macro_recall*100).toFixed(1)+'%</td></tr><tr><td>Macro-F1</td><td>'+(r.baseline.macro_f1*100).toFixed(1)+'%</td><td>'+(r.learned.macro_f1*100).toFixed(1)+'%</td></tr></table><p class="muted">Training examples: '+r.training_examples+' · Approved corrections: '+r.approved_corrections+'</p><h3>Per-class results (after feedback)</h3><pre>'+JSON.stringify(r.report,null,2)+'</pre><h3>Confusion matrix (after feedback)</h3><pre>'+JSON.stringify(r.confusion_matrix,null,2)+'</pre>';detailedEvaluationHtml=$("#evaluation").innerHTML;await load();$("#evaluation").innerHTML=detailedEvaluationHtml}catch(e){$("#evaluation").textContent=e.message}};
-$("#evaluate-retrieval").onclick=async()=>{try{const r=await api("/api/admin/evaluate-retrieval",{});const pct=v=>(v*100).toFixed(1)+"%";$("#retrieval-evaluation").innerHTML='<p><b>Test queries:</b> '+r.query_count+' · <b>Top K:</b> '+r.top_k+'</p><table><tr><th>Metric</th><th>Score</th></tr><tr><td>Precision@5</td><td>'+pct(r.precision_at_5)+'</td></tr><tr><td>Recall@5</td><td>'+pct(r.recall_at_5)+'</td></tr><tr><td>MRR</td><td>'+r.mrr.toFixed(3)+'</td></tr></table><p class="muted">'+r.note+'</p><h3>Per-query results</h3><table><thead><tr><th>Query</th><th>Relevant IDs</th><th>Retrieved IDs</th><th>P@5</th><th>R@5</th><th>RR</th></tr></thead><tbody>'+r.results.map(x=>'<tr><td>'+x.query+'</td><td>'+x.relevant_review_ids.join(', ')+'</td><td>'+x.retrieved_review_ids.join(', ')+'</td><td>'+pct(x.precision_at_5)+'</td><td>'+pct(x.recall_at_5)+'</td><td>'+x.mrr.toFixed(3)+'</td></tr>').join('')+'</tbody></table>';$("#retrieval-history").innerHTML=r.history.length?'<table><tr><th>Run</th><th>P@5</th><th>R@5</th><th>MRR</th><th>Queries</th></tr>'+r.history.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleString()+'</td><td>'+pct(x.precision_at_5)+'</td><td>'+pct(x.recall_at_5)+'</td><td>'+x.mrr.toFixed(3)+'</td><td>'+x.query_count+'</td></tr>').join('')+'</table>':'<p>No saved runs yet.</p>'}catch(e){$("#retrieval-evaluation").textContent=e.message}};
-;load();
+function metric(label,value) {
+  const card=document.createElement("div");card.className="card";
+  const number=document.createElement("div");number.className="metric";number.textContent=value??"—";
+  const caption=document.createElement("div");caption.className="muted";caption.textContent=label;card.append(number,caption);return card;
+}
+function showError(node,message) { node.replaceChildren();const p=document.createElement("p");p.className="muted";p.textContent=message;node.append(p); }
+async function loadQueue() {
+  const root=$("#queue");root.textContent="Loading approval queue…";
+  try {
+    const data=await api("/api/admin/feedback");
+    if(!Array.isArray(data.feedback))throw new Error("The feedback response is missing its feedback list.");
+    const pending=data.feedback.filter(row=>row&&row.status==="pending");root.replaceChildren();
+    if(!pending.length){showError(root,"No pending corrections. Submit a correction from the storefront to populate this queue.");return;}
+    pending.forEach(row=>{
+      const item=document.createElement("article");item.className="item";
+      const status=document.createElement("div");status.className="status";status.textContent="Pending · #"+row.id;
+      const question=document.createElement("div");question.className="question";question.textContent=row.question||"(empty question)";
+      const correction=document.createElement("div");correction.className="answer";correction.textContent="Suggested correction: "+(row.correction||"");
+      const guess=document.createElement("div");guess.className="muted";guess.textContent="Classifier guess: "+(row.predicted_aspect||"uncertain");
+      const controls=document.createElement("div");controls.className="row";
+      const aspectWrap=document.createElement("div"),termWrap=document.createElement("div"),vocabWrap=document.createElement("div");
+      const aspectLabel=document.createElement("label");aspectLabel.textContent="Correct aspect";const aspect=document.createElement("select");aspect.className="aspect";
+      const vocabLabel=document.createElement("label");vocabLabel.textContent="Map phrase to";const vocab=document.createElement("select");vocab.className="vocab";
+      aspects.forEach(value=>{const a=document.createElement("option");a.value=value;a.textContent=value;aspect.append(a);const v=document.createElement("option");v.value=value;v.textContent=value;vocab.append(v)});
+      const termLabel=document.createElement("label");termLabel.textContent="Optional new slang / phrase";const term=document.createElement("input");term.className="term";term.placeholder="e.g. gempak";
+      aspectWrap.append(aspectLabel,aspect);vocabWrap.append(vocabLabel,vocab);termWrap.append(termLabel,term);controls.append(aspectWrap,termWrap,vocabWrap);
+      const approve=document.createElement("button");approve.textContent="Approve & learn";const reject=document.createElement("button");reject.className="reject";reject.textContent="Reject";
+      approve.addEventListener("click",()=>review(row,"approved",item));reject.addEventListener("click",()=>review(row,"rejected",item));
+      item.append(status,question,correction,guess,controls,approve,reject);root.append(item);
+    });
+  } catch(error) { showError(root,"Could not load approval queue: "+error.message+" Use Refresh to try again."); }
+}
+async function loadSummary() {
+  const root=$("#metrics");
+  try {
+    const s=await api("/api/admin/summary");
+    root.replaceChildren(metric("Corrections",s.feedback_total),metric("Pending",s.pending),metric("Approved",s.approved),metric("Rejected",s.rejected),metric("Vocabulary entries",s.vocabulary_size),metric("Training examples",s.training_examples));
+    if(!detailedEvaluationHtml&&s.latest_evaluation)$("#evaluation").textContent="Latest: accuracy "+(s.latest_evaluation.accuracy*100).toFixed(1)+"% · macro-F1 "+(s.latest_evaluation.macro_f1*100).toFixed(1)+"% · training examples "+s.latest_evaluation.training_examples;
+    const history=$("#history");history.replaceChildren();
+    if(!s.evaluation_history?.length){showError(history,"Run an evaluation to start the history.");return;}
+    const table=document.createElement("table");table.innerHTML="<thead><tr><th>Run</th><th>Accuracy</th><th>Macro-F1</th><th>Training examples</th><th>Approved</th></tr></thead>";
+    const body=document.createElement("tbody");
+    s.evaluation_history.forEach(run=>{const tr=document.createElement("tr");[new Date(run.created_at).toLocaleString(),(run.accuracy*100).toFixed(1)+"%",(run.macro_f1*100).toFixed(1)+"%",run.training_examples,run.approved_corrections].forEach(value=>{const td=document.createElement("td");td.textContent=value;tr.append(td)});body.append(tr)});
+    table.append(body);history.append(table);
+  } catch(error) { showError(root,"Dashboard summary unavailable: "+error.message); }
+}
+async function load(){if(loading)return;loading=true;$("#queue").textContent="Loading approval queue…";await Promise.allSettled([loadQueue(),loadSummary()]);loading=false;}
+async function review(row,decision,item){
+  try{const term=item.querySelector(".term").value.trim();await api("/api/admin/review",{id:row.id,decision,corrected_aspect:item.querySelector(".aspect").value,vocab_term:term||null,vocab_aspect:term?item.querySelector(".vocab").value:null});await load()}
+  catch(error){alert("Could not save review: "+error.message)}
+}
+$("#refresh").addEventListener("click",load);
+$("#evaluate").addEventListener("click",async()=>{
+  const node=$("#evaluation");node.textContent="Evaluating classifier…";
+  try{
+    const r=await api("/api/admin/evaluate",{},60000),pct=v=>(v*100).toFixed(1)+"%";
+    const table=document.createElement("table");table.innerHTML="<tr><th>Metric</th><th>Seed-only baseline</th><th>After approved feedback</th></tr>";
+    [["Accuracy",r.baseline.accuracy,r.learned.accuracy],["Macro precision",r.baseline.macro_precision,r.learned.macro_precision],["Macro recall",r.baseline.macro_recall,r.learned.macro_recall],["Macro-F1",r.baseline.macro_f1,r.learned.macro_f1]].forEach(row=>{const tr=document.createElement("tr");row.forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=i?pct(v):v;tr.append(td)});table.append(tr)});
+    node.replaceChildren();const p=document.createElement("p");p.textContent="Fixed test set: "+r.test_examples+" examples · Training examples: "+r.training_examples+" · Approved corrections: "+r.approved_corrections;
+    const h=document.createElement("h3");h.textContent="Per-class results";const pre=document.createElement("pre");pre.textContent=JSON.stringify(r.report,null,2);
+    const cm=document.createElement("h3");cm.textContent="Confusion matrix";const matrix=document.createElement("pre");matrix.textContent=JSON.stringify(r.confusion_matrix,null,2);
+    node.append(p,table,h,pre,cm,matrix);detailedEvaluationHtml=node.innerHTML;await loadSummary();
+  }catch(error){showError(node,error.message)}
+});
+$("#evaluate-retrieval").addEventListener("click",async()=>{
+  const node=$("#retrieval-evaluation");node.textContent="Evaluating retrieval…";
+  try{
+    const r=await api("/api/admin/evaluate-retrieval",{},60000),pct=v=>(v*100).toFixed(1)+"%";
+    node.innerHTML="<p>Test queries: "+r.query_count+" · Top K: "+r.top_k+"</p><table><tr><th>Metric</th><th>Score</th></tr><tr><td>Precision@5</td><td>"+pct(r.precision_at_5)+"</td></tr><tr><td>Recall@5</td><td>"+pct(r.recall_at_5)+"</td></tr><tr><td>MRR</td><td>"+r.mrr.toFixed(3)+"</td></tr></table>";
+    const history=$("#retrieval-history");history.replaceChildren();
+    if(r.history?.length){const table=document.createElement("table");table.innerHTML="<tr><th>Run</th><th>P@5</th><th>R@5</th><th>MRR</th><th>Queries</th></tr>";r.history.forEach(x=>{const tr=document.createElement("tr");[new Date(x.created_at).toLocaleString(),pct(x.precision_at_5),pct(x.recall_at_5),x.mrr.toFixed(3),x.query_count].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});table.append(tr)});history.append(table)}
+  }catch(error){showError(node,error.message)}
+});
+load();
+</script>
+</body></html>
