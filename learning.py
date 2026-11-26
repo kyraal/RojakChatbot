@@ -259,6 +259,32 @@ def _score_model(X_train, y_train, X_test, y_test):
     }
 
 
+def _rule_based_aspect(question):
+    """Transparent keyword baseline for the three-way model comparison."""
+    text = normalize_rojak(question)
+    rules = {
+        "fit": ["fit", "size", "sizing", "saiz", "ukuran", "muat", "ngam", "ketat", "longgar", "besar", "kecil"],
+        "fabric": ["fabric", "material", "kain", "panas", "bahang", "rimas", "lembut", "breathable", "selesa", "comfy"],
+        "quality": ["quality", "kualiti", "jahitan", "stitch", "sewing", "sloppy", "kemas", "koyak", "rosak", "benang"],
+        "colour": ["colour", "color", "warna", "cantik", "lawa", "cun", "pudar", "luntur", "design"],
+        "delivery": ["delivery", "shipping", "penghantaran", "pos", "courier", "lambat", "sampai", "parcel"]
+    }
+    scores = {aspect: sum(1 for term in terms if term in text) for aspect, terms in rules.items()}
+    best = max(scores, key=scores.get)
+    return best if scores[best] else None
+
+
+def _classification_metrics(y_true, predictions):
+    labels = list(ASPECTS)
+    return {
+        "accuracy": float(accuracy_score(y_true, predictions)),
+        "macro_precision": float(precision_score(y_true, predictions, labels=labels, average="macro", zero_division=0)),
+        "macro_recall": float(recall_score(y_true, predictions, labels=labels, average="macro", zero_division=0)),
+        "macro_f1": float(f1_score(y_true, predictions, labels=labels, average="macro", zero_division=0)),
+        "confusion_matrix": confusion_matrix(y_true, predictions, labels=labels).tolist()
+    }
+
+
 def evaluate_classifier():
     """Compare seed-only baseline with approved-feedback training on one fixed test set."""
     test_examples = load_test_examples()
@@ -279,10 +305,33 @@ def evaluate_classifier():
     trained_y.extend(row["corrected_aspect"] for row in approved)
     learned_test = [_normalize_with_vocab(q, learned_vocab) for q, _ in test_examples]
     learned = _score_model(trained_X, trained_y, learned_test, y_test)
+
+    # Compare three approaches on the same held-out examples:
+    # transparent rules, supervised TF-IDF + Logistic Regression, and a hybrid
+    # that falls back to rules only when the classifier is below confidence threshold.
+    feature_model = _new_model()
+    train_matrix = feature_model.fit_transform(trained_X)
+    test_matrix = feature_model.transform(learned_test)
+    classifier = LogisticRegression(max_iter=1200, class_weight="balanced", random_state=42)
+    classifier.fit(train_matrix, trained_y)
+    probabilities = classifier.predict_proba(test_matrix)
+    classes = list(classifier.classes_)
+    supervised_predictions = [classes[int(np.argmax(row))] for row in probabilities]
+    rule_predictions = [_rule_based_aspect(q) or "quality" for q, _ in test_examples]
+    hybrid_predictions = []
+    for (question, _), probs, supervised in zip(test_examples, probabilities, supervised_predictions):
+        confidence = float(np.max(probs))
+        hybrid_predictions.append(supervised if confidence >= MIN_CONFIDENCE else (_rule_based_aspect(question) or supervised))
+    three_models = {
+        "rule_based": _classification_metrics(y_test, rule_predictions),
+        "supervised": _classification_metrics(y_test, supervised_predictions),
+        "hybrid": _classification_metrics(y_test, hybrid_predictions)
+    }
     approved_count = sum(1 for row in feedback_rows("approved")
                          if row.get("corrected_aspect") in ASPECTS)
 
     result = {
+        "three_models": three_models,
         "baseline": baseline,
         "learned": learned,
         "accuracy": learned["accuracy"],
