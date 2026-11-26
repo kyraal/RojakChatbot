@@ -324,6 +324,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, learning.summary())
         if path == "/api/admin/feedback":
             return self._json(200, {"feedback": learning.feedback_rows()})
+        if path == "/api/admin/sentiment":
+            return self._json(200, BOT.sentiment_analysis())
+        if path == "/api/admin/topics":
+            return self._json(200, BOT.lda_topics())
         if path == "/admin":
             path = "/admin.html"
         target = (PUBLIC / (path.lstrip("/") or "index.html")).resolve()
@@ -393,6 +397,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, learning.evaluate_classifier())
             except Exception as exc:
                 return self._json(500, {"error": str(exc)})
+        if self.path == "/api/admin/pos":
+            sample = str(payload.get("text", "")).strip()[:500]
+            if not sample:
+                return self._json(400, {"error": "Enter a sentence to tag."})
+            tagged = BOT.pos_tag(sample)
+            if isinstance(tagged, dict) and tagged.get("error"):
+                return self._json(503, tagged)
+            return self._json(200, {"text": sample, "tokens": tagged,
+                                    "note": "NLTK's pretrained POS tagger is English-centric; BM/Rojak tags are exploratory, not Malay-specific grammatical analysis."})
         return self._json(404, {"error": "Unknown endpoint"})
 
 
