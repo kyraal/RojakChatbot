@@ -184,11 +184,13 @@ def feedback_rows(status=None):
     return [dict(r) for r in rows]
 
 def training_data():
+    """Build training examples using one vocabulary/database read per batch."""
     init_db()
-    X = [normalize_rojak(x) for x, _ in SEED_EXAMPLES]
+    vocab = vocabulary()
+    X = [_normalize_with_vocab(question, vocab) for question, _ in SEED_EXAMPLES]
     y = [label for _, label in SEED_EXAMPLES]
     approved = [r for r in feedback_rows("approved") if r.get("corrected_aspect") in ASPECTS]
-    X.extend(normalize_rojak(r["question"]) for r in approved)
+    X.extend(_normalize_with_vocab(r["question"], vocab) for r in approved)
     y.extend(r["corrected_aspect"] for r in approved)
     return X, y
 
@@ -376,13 +378,25 @@ def retrieval_evaluation_history(limit=10):
     return [dict(row) for row in rows]
 
 def summary():
+    """Return dashboard counters with aggregate SQL; do not rebuild training data."""
     init_db()
-    rows = feedback_rows()
-    counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("pending", "approved", "rejected")}
-    X, _ = training_data()
     with connect() as db:
-        runs = [dict(r) for r in db.execute("SELECT * FROM evaluation_runs ORDER BY id DESC LIMIT 20")]
+        count_rows = db.execute(
+            "SELECT status, COUNT(*) AS n FROM feedback GROUP BY status"
+        ).fetchall()
+        counts = {status: 0 for status in ("pending", "approved", "rejected")}
+        counts.update({row["status"]: row["n"] for row in count_rows if row["status"] in counts})
+        feedback_total = sum(counts.values())
+        approved_training = db.execute(
+            "SELECT COUNT(*) FROM feedback WHERE status='approved' AND corrected_aspect IN ("
+            + ",".join("?" for _ in ASPECTS) + ")",
+            tuple(ASPECTS)
+        ).fetchone()[0]
+        runs = [dict(r) for r in db.execute(
+            "SELECT * FROM evaluation_runs ORDER BY id DESC LIMIT 20"
+        )]
         vocab_count = db.execute("SELECT COUNT(*) FROM vocabulary").fetchone()[0]
     latest = runs[0] if runs else None
-    return {"feedback_total": len(rows), **counts, "vocabulary_size": vocab_count,
-            "training_examples": len(X), "latest_evaluation": latest, "evaluation_history": runs}
+    return {"feedback_total": feedback_total, **counts, "vocabulary_size": vocab_count,
+            "training_examples": len(SEED_EXAMPLES) + approved_training,
+            "latest_evaluation": latest, "evaluation_history": runs}
