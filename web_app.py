@@ -6,10 +6,13 @@ Run: python web_app.py
 from __future__ import annotations
 
 from collections import Counter
+import base64
+import binascii
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import threading
 from urllib.parse import urlparse
 
 from nlp_engine import ReviewAssistant, load_reviews
@@ -47,6 +50,36 @@ def load_bot():
 
 
 BOT = load_bot()
+WHISPER_MODEL = None
+WHISPER_LOCK = threading.Lock()
+
+
+def transcribe_with_whisper(audio_b64):
+    """Transcribe multilingual audio with automatic language detection."""
+    global WHISPER_MODEL
+    if not isinstance(audio_b64, str) or not audio_b64:
+        raise ValueError("No recorded audio was provided")
+    try:
+        audio_bytes = base64.b64decode(audio_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("The audio upload was not valid base64 data")
+    if len(audio_bytes) > 15 * 1024 * 1024:
+        raise ValueError("Recording is too large. Please record a shorter question (under 15 MB).")
+    if len(audio_bytes) < 100:
+        raise ValueError("The recording is empty or too short")
+    from faster_whisper import WhisperModel
+    with WHISPER_LOCK:
+        if WHISPER_MODEL is None:
+            model_size = __import__("os").environ.get("WHISPER_MODEL_SIZE", "small")
+            WHISPER_MODEL = WhisperModel(model_size, device="cpu", compute_type="int8")
+        segments, info = WHISPER_MODEL.transcribe(
+            audio_bytes, language=None, task="transcribe", beam_size=5, vad_filter=True
+        )
+        transcript = " ".join(segment.text.strip() for segment in segments).strip()
+    if not transcript:
+        raise ValueError("Whisper could not detect clear speech. Please try again.")
+    return {"text": transcript, "language": info.language,
+            "language_probability": round(float(info.language_probability), 3)}
 
 
 def matching_order(text):
@@ -170,12 +203,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         size = int(self.headers.get("Content-Length", "0"))
-        if size > 100_000:
+        limit = 20 * 1024 * 1024 if self.path == "/api/transcribe" else 100_000
+        if size > limit:
             return self._json(413, {"error": "Request too large"})
         try:
             payload = json.loads(self.rfile.read(size))
         except (ValueError, UnicodeDecodeError):
             return self._json(400, {"error": "Invalid JSON"})
+        if self.path == "/api/transcribe":
+            try:
+                return self._json(200, transcribe_with_whisper(payload.get("audio", "")))
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
+            except ImportError:
+                return self._json(503, {"error": "Whisper is not installed yet. Run: pip install -r requirements.txt"})
+            except Exception as exc:
+                return self._json(500, {"error": "Whisper transcription failed: " + str(exc)})
         if self.path == "/api/chat":
             return self._json(200, respond(payload.get("message", ""), payload.get("context")))
         if self.path == "/api/feedback":
