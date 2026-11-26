@@ -144,7 +144,7 @@ def product_answer(question, product_context=False):
     return {"reply": reply, "evidence": [{"review": h["review"], "rating": h["rating"]} for h in relevant[:3]], "type": "reviews"}
 
 
-def respond(text, context=None):
+def _respond_base(text, context=None):
     question = " ".join(str(text).strip().split())[:1000]
     if not question:
         return {"reply": "Send me a question and I'll help.", "evidence": [], "type": "clarify"}
@@ -166,6 +166,84 @@ def respond(text, context=None):
     if re.search(r"\b(thank|thanks|terima kasih|tq)\b", lower):
         return {"reply": "You're welcome! Let me know if you'd like to check another product detail or an order.", "evidence": [], "type": "social"}
     return product_answer(wording, context.get("kind") == "product")
+
+
+
+def detect_language(text):
+    """Lightweight language-mode detection for English, BM and mixed Rojak."""
+    words = set(re.findall(r"[a-z]+", str(text).lower()))
+    bm_markers = {"saya","aku","awak","anda","dia","kita","kami","tak","tidak","ke","kah","lah","kan","ni","tu","dengan","untuk","boleh","berapa","macam","mana","kenapa","apa","bila","kain","saiz","warna","jahitan","penghantaran","panas","selesa","cantik","muat","ngam","lawa","sampai","lambat","takut"}
+    en_markers = {"the","is","are","was","were","what","how","why","when","where","does","do","can","could","would","should","my","your","this","that","size","fabric","colour","color","stitching","delivery","comfortable","hot","good","bad","same","picture","order","please","i","you"}
+    bm = len(words & bm_markers)
+    en = len(words & en_markers)
+    if bm and en:
+        return "rojak"
+    if bm:
+        return "ms"
+    return "en"
+
+
+def localize_reply(reply, language):
+    """Translate assistant-authored templates while retaining original review quotations."""
+    if language == "en":
+        return reply
+    translations = {
+        "About sizing and fit:": ("Tentang saiz dan kesesuaian:", "Pasal sizing and fit:"),
+        "About fabric and comfort:": ("Tentang kain dan keselesaan:", "Pasal fabric and comfort:"),
+        "About stitching and quality:": ("Tentang jahitan dan kualiti:", "Pasal stitching and quality:"),
+        "About colour and appearance:": ("Tentang warna dan penampilan:", "Pasal colour and appearance:"),
+        "About delivery experience:": ("Tentang pengalaman penghantaran:", "Pasal delivery experience:"),
+        "The experiences are mixed.": ("Pengalaman pembeli bercampur-campur.", "Buyer experience memang mixed."),
+        "The retrieved reviews lean critical.": ("Ulasan yang ditemui lebih banyak menyatakan pengalaman kurang memuaskan.", "Reviews yang dijumpai lebih banyak negative."),
+        "The retrieved reviews lean positive.": ("Ulasan yang ditemui lebih cenderung positif.", "Reviews yang dijumpai mostly positive."),
+        "The retrieved reviews do not show a clear consensus.": ("Ulasan yang ditemui tidak menunjukkan satu kesimpulan yang jelas.", "Reviews yang dijumpai tak menunjukkan clear consensus."),
+        "Some buyers specifically describe the fabric as comfortable or not hot.": ("Sesetengah pembeli menyatakan kain selesa dan tidak panas.", "Some buyers kata kain selesa and tak panas."),
+        "The reviews mention fabric and comfort, but don't establish clearly whether it feels hot.": ("Ulasan menyebut tentang kain dan keselesaan, tetapi tidak mengesahkan sama ada kain terasa panas.", "Reviews mention fabric and comfort, tapi tak confirm sama ada kain panas."),
+        "Some buyers say the size matches the chart, while fit may differ between wearers.": ("Sesetengah pembeli mengatakan saiz menepati carta, tetapi kesesuaian mungkin berbeza mengikut pemakai.", "Some buyers kata size ikut chart, tapi fit boleh berbeza ikut orang."),
+        "Buyers' fit experiences vary, so check your measurements against a size chart.": ("Pengalaman tentang saiz berbeza, jadi bandingkan ukuran anda dengan carta saiz.", "Fit experience berbeza, so check measurements dengan size chart."),
+        "There are comments about neat stitching, and some report quality issues.": ("Ada pembeli memuji jahitan yang kemas, manakala sesetengahnya melaporkan isu kualiti.", "Ada yang kata stitching kemas, tapi some buyers report quality issues."),
+        "Buyers comment on stitching and finish, with varying experiences.": ("Pembeli memberikan pandangan berbeza tentang jahitan dan kemasan.", "Buyer feedback tentang stitching and finishing agak mixed."),
+        "These are past delivery experiences; I can't guarantee a future delivery time.": ("Ini ialah pengalaman penghantaran terdahulu; saya tidak dapat menjamin tempoh penghantaran akan datang.", "Ini past delivery experience; I can't guarantee next delivery time."),
+        "The comments describe how the item looked to those buyers.": ("Ulasan ini menerangkan rupa produk menurut pembeli.", "Comments ni describe how the item looked to buyers."),
+        "For example, one customer wrote:": ("Sebagai contoh, seorang pelanggan menulis:", "For example, one customer wrote:"),
+        "You can open the original reviews below.": ("Anda boleh melihat ulasan asal di bawah.", "You can check original reviews kat bawah."),
+        "Hi! Happy to help. Ask me about fabric, stitching, delivery reviews or an order. You can mix English and BM—no problem.": ("Hai! Saya boleh bantu. Tanya saya tentang kain, jahitan, penghantaran atau pesanan anda.", "Hi! Boleh je tanya pasal fabric, stitching, delivery atau order. English and BM pun okay."),
+        "You're welcome! Let me know if you'd like to check another product detail or an order.": ("Sama-sama! Beritahu saya jika anda ingin menyemak butiran produk atau pesanan lain.", "You're welcome! Kalau nak check product detail atau order lain, just tanya ya."),
+        "Send me a question and I'll help.": ("Hantarkan soalan anda dan saya akan bantu.", "Send je your question, nanti saya bantu."),
+        "I can help with what customers said about fabric, stitching, colour and delivery. Which part would you like to know about?": ("Saya boleh bantu tentang komen pelanggan mengenai kain, jahitan, warna dan penghantaran. Bahagian mana yang anda ingin tahu?", "I boleh bantu pasal fabric, stitching, colour and delivery. Which part you nak tahu?"),
+        "I do not have a verified store return policy in the review dataset, so I cannot confirm the return window or conditions. Please check the seller official policy or contact the store directly.": ("Dataset ulasan tidak mengandungi polisi pemulangan yang disahkan. Sila semak polisi rasmi penjual atau hubungi kedai secara terus.", "Dataset reviews tak ada verified return policy, so please check seller's official policy atau contact kedai terus."),
+        "Sorry, I couldn't connect to the shop assistant. Please try again.": ("Maaf, saya tidak dapat menyambung kepada pembantu kedai. Sila cuba lagi.", "Sorry, connection problem tadi. Please try again ya.")
+    }
+    for source, versions in translations.items():
+        reply = reply.replace(source, versions[0] if language == "ms" else versions[1])
+    if language == "ms":
+        reply = re.sub(r"I couldn't find enough review evidence about (.*?) to answer confidently\. Try asking about another feature\.",
+                       r"Saya tidak menemui ulasan yang mencukupi tentang \1 untuk menjawab dengan yakin. Cuba tanya tentang ciri lain.", reply)
+    else:
+        reply = re.sub(r"I couldn't find enough review evidence about (.*?) to answer confidently\. Try asking about another feature\.",
+                       r"I tak jumpa cukup review evidence tentang \1 untuk jawab dengan yakin. Maybe ask about another feature?", reply)
+    return reply
+
+
+def respond(text, context=None):
+    question = " ".join(str(text).strip().split())[:1000]
+    language = detect_language(question)
+    result = _respond_base(question, context)
+    result["reply"] = localize_reply(result.get("reply", ""), language)
+    result["language"] = language
+    if question:
+        try:
+            prediction = learning.predict_aspect(question)
+            alternatives = prediction.get("alternatives", [])
+            result["suggestions"] = [
+                {"aspect": item["aspect"], "label": ASPECTS[item["aspect"]]["label"]}
+                for item in alternatives[:2] if item["aspect"] in ASPECTS
+            ]
+        except Exception:
+            result["suggestions"] = []
+    else:
+        result["suggestions"] = []
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
