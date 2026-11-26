@@ -133,11 +133,6 @@ function renderMessages() {
       suggestions.forEach(text => { const button = document.createElement("button"); button.textContent = text; button.addEventListener("click", () => sendMessage(text)); choices.append(button); });
       root.append(choices);
     }
-    if (message.role === "assistant" && Number.isFinite(message.responseTimeMs)) {
-      const timing = document.createElement("div"); timing.className = "response-time";
-      timing.textContent = "Response time: " + (message.responseTimeMs / 1000).toFixed(2) + "s";
-      bubble.append(timing);
-    }
     if (message.evidence?.length) {
       const details = document.createElement("details"); details.className = "evidence";
       const summary = document.createElement("summary"); summary.textContent = `View ${message.evidence.length} customer reviews`; details.append(summary);
@@ -196,6 +191,9 @@ function openChat(attachment = null) {
     appendMessage("assistant", "Hi Aina! 👋 Welcome to Rojak Wardrobe. What can I help you with today? Ask in English, BM or Rojak.", { quickReplies: true });
   }
   state.lastOpen = now; saveChat();
+  // Repaint restored local history whenever the chat opens; do not wait for
+  // the next message append to trigger the first render.
+  renderMessages();
   $("#chat-panel").classList.add("open"); $("#chat-panel").setAttribute("aria-hidden", "false");
   $("#floating-chat").hidden = true;
   if (attachment) {
