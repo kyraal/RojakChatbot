@@ -10,6 +10,8 @@ import base64
 import binascii
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import io
+import time
 from pathlib import Path
 import re
 import threading
@@ -73,7 +75,7 @@ def transcribe_with_whisper(audio_b64):
             model_size = __import__("os").environ.get("WHISPER_MODEL_SIZE", "small")
             WHISPER_MODEL = WhisperModel(model_size, device="cpu", compute_type="int8")
         segments, info = WHISPER_MODEL.transcribe(
-            audio_bytes, language=None, task="transcribe", beam_size=5, vad_filter=True
+            io.BytesIO(audio_bytes), language=None, task="transcribe", beam_size=5, vad_filter=True
         )
         transcript = " ".join(segment.text.strip() for segment in segments).strip()
     if not transcript:
@@ -290,7 +292,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "Invalid JSON"})
         if self.path == "/api/transcribe":
             try:
-                return self._json(200, transcribe_with_whisper(payload.get("audio", "")))
+                started = time.perf_counter()
+                result = transcribe_with_whisper(payload.get("audio", ""))
+                result["processing_time_ms"] = round((time.perf_counter() - started) * 1000, 1)
+                return self._json(200, result)
             except ValueError as exc:
                 return self._json(400, {"error": str(exc)})
             except ImportError:
@@ -298,7 +303,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return self._json(500, {"error": "Whisper transcription failed: " + str(exc)})
         if self.path == "/api/chat":
-            return self._json(200, respond(payload.get("message", ""), payload.get("context")))
+            started = time.perf_counter()
+            result = respond(payload.get("message", ""), payload.get("context"))
+            result["response_time_ms"] = round((time.perf_counter() - started) * 1000, 1)
+            return self._json(200, result)
         if self.path == "/api/feedback":
             question = str(payload.get("question", "")).strip()[:1000]
             correction = str(payload.get("correction", "")).strip()[:2000]
