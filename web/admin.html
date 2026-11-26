@@ -83,12 +83,16 @@ $("#evaluate").addEventListener("click",async()=>{
   const node=$("#evaluation");node.textContent="Evaluating classifier…";
   try{
     const r=await api("/api/admin/evaluate",{},60000),pct=v=>(v*100).toFixed(1)+"%";
+    node.replaceChildren();const p=document.createElement("p");p.textContent="Fixed test set: "+r.test_examples+" examples · Training examples: "+r.training_examples+" · Approved corrections: "+r.approved_corrections;node.append(p);
+    const title=document.createElement("h3");title.textContent="Three-model comparison";node.append(title);
+    const modelTable=document.createElement("table");modelTable.innerHTML="<tr><th>Metric</th><th>Rule-based</th><th>Supervised ML</th><th>Hybrid</th></tr>";
+    [["Accuracy","accuracy"],["Macro precision","macro_precision"],["Macro recall","macro_recall"],["Macro-F1","macro_f1"]].forEach(([label,key])=>{const tr=document.createElement("tr");[label,pct(r.three_models.rule_based[key]),pct(r.three_models.supervised[key]),pct(r.three_models.hybrid[key])].forEach((value,i)=>{const td=document.createElement(i?"td":"th");td.textContent=value;tr.append(td)});modelTable.append(tr)});node.append(modelTable);
+    const beforeAfter=document.createElement("h3");beforeAfter.textContent="Supervised model: before vs after approved corrections";node.append(beforeAfter);
     const table=document.createElement("table");table.innerHTML="<tr><th>Metric</th><th>Seed-only baseline</th><th>After approved feedback</th></tr>";
-    [["Accuracy",r.baseline.accuracy,r.learned.accuracy],["Macro precision",r.baseline.macro_precision,r.learned.macro_precision],["Macro recall",r.baseline.macro_recall,r.learned.macro_recall],["Macro-F1",r.baseline.macro_f1,r.learned.macro_f1]].forEach(row=>{const tr=document.createElement("tr");row.forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=i?pct(v):v;tr.append(td)});table.append(tr)});
-    node.replaceChildren();const p=document.createElement("p");p.textContent="Fixed test set: "+r.test_examples+" examples · Training examples: "+r.training_examples+" · Approved corrections: "+r.approved_corrections;
-    const h=document.createElement("h3");h.textContent="Per-class results";const pre=document.createElement("pre");pre.textContent=JSON.stringify(r.report,null,2);
-    const cm=document.createElement("h3");cm.textContent="Confusion matrix";const matrix=document.createElement("pre");matrix.textContent=JSON.stringify(r.confusion_matrix,null,2);
-    node.append(p,table,h,pre,cm,matrix);detailedEvaluationHtml=node.innerHTML;await loadSummary();
+    [["Accuracy",r.baseline.accuracy,r.learned.accuracy],["Macro precision",r.baseline.macro_precision,r.learned.macro_precision],["Macro recall",r.baseline.macro_recall,r.learned.macro_recall],["Macro-F1",r.baseline.macro_f1,r.learned.macro_f1]].forEach(row=>{const tr=document.createElement("tr");row.forEach((v,i)=>{const td=document.createElement(i?"td":"th");td.textContent=i?pct(v):v;tr.append(td)});table.append(tr)});node.append(table);
+    const h=document.createElement("h3");h.textContent="Per-class results (learned supervised model)";const pre=document.createElement("pre");pre.textContent=JSON.stringify(r.report,null,2);
+    const cm=document.createElement("h3");cm.textContent="Confusion matrix";const matrix=document.createElement("pre");matrix.textContent=JSON.stringify(r.confusion_matrix,null,2);node.append(h,pre,cm,matrix);
+    detailedEvaluationHtml=node.innerHTML;await loadSummary();
   }catch(error){showError(node,error.message)}
 });
 $("#evaluate-retrieval").addEventListener("click",async()=>{
