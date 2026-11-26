@@ -190,7 +190,7 @@ def localize_reply(reply, language):
     if language == "en":
         return reply
     order_match = re.fullmatch(
-        r"I found your order (.+?) for (.+?) \\((.+?)\\)\\. It is (.+?)\\. Parcel code: (.+?)\\. Estimated delivery/result: (.+?)\\. What else would you like to know\\?",
+        r"I found your order (.+?) for (.+?) \((.+?)\)\. It is (.+?)\. Parcel code: (.+?)\. Estimated delivery/result: (.+?)\. What else would you like to know\?",
         reply
     )
     if order_match:
