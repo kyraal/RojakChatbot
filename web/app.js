@@ -277,7 +277,7 @@ function discardVoice() {
   if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
   state.audioUrl = null; state.voiceText = "";
   $("#voice-playback").pause(); $("#voice-playback").removeAttribute("src"); $("#voice-playback").hidden = true;
-  $("#voice-use-text").hidden = true; $("#voice-preview").hidden = true;
+  $("#voice-preview").hidden = true;
 }
 
 async function startVoice() {
@@ -327,11 +327,17 @@ async function startVoice() {
       if (session !== state.voiceSession) return;
       state.voiceText = result.text || "";
       $("#voice-transcript").textContent = state.voiceText || "No speech detected.";
-      $("#voice-use-text").hidden = !state.voiceText;
-      setVoiceStatus("Whisper ready · " + (result.language || "language unknown") + " · " + ((result.processing_time_ms || 0) / 1000).toFixed(1) + "s");
+      if (state.voiceText) {
+        // Put the transcript into the normal message field so the user can
+        // correct recognition mistakes before deliberately pressing Send.
+        $("#chat-input").value = state.voiceText;
+        $("#chat-input").focus();
+        setVoiceStatus("Transcript ready · edit if needed, then press Send");
+      } else {
+        setVoiceStatus("No speech detected · try recording again");
+      }
     } catch (error) {
       $("#voice-transcript").textContent = error.message;
-      $("#voice-use-text").hidden = true;
       setVoiceStatus("Transcription failed. You can still play the recording or try again.");
     }
   };
@@ -353,11 +359,6 @@ async function init() {
   $("#chat-input").addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); sendMessage(); } });
   $("#voice-button").addEventListener("click", startVoice);
   $("#voice-discard").addEventListener("click", discardVoice);
-  $("#voice-use-text").addEventListener("click", () => {
-    if (!state.voiceText) return;
-    const input = $("#chat-input"); input.value = [input.value.trim(), state.voiceText].filter(Boolean).join(" ");
-    input.focus(); toast("Transcript added. Check it before sending.");
-  });
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeChat(); });
 }
 
