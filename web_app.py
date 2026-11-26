@@ -322,7 +322,7 @@ def respond(text, context=None):
     question = " ".join(str(text).strip().split())[:1000]
     language = detect_language(question)
     sentiment_question = bool(re.search(
-        r"\\b(sentiment|satisfied|satisfaction|happy with|positive reviews|negative reviews|overall feedback|customer feedback)\\b",
+        r"\b(sentiment|satisfied|satisfaction|happy with|positive reviews|negative reviews|overall feedback|customer feedback)\b",
         question.lower()
     ))
     if sentiment_question:
