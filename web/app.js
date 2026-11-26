@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { products: [], orders: [], messages: [], lastOpen: 0, recognition: null, recorder: null, voiceStream: null, audioUrl: null, audioContext: null, meterFrame: null, voiceText: "", voiceSession: 0, recording: false, attachment: null };
+const state = { products: [], orders: [], messages: [], lastOpen: 0, recorder: null, voiceStream: null, audioUrl: null, audioContext: null, meterFrame: null, voiceText: "", voiceSession: 0, recording: false, attachment: null };
 const suggestions = ["Kain dia panas tak?", "Jahitan kemas ke?", "Warna okay tak?", "Where is my order?"];
 const palette = { navy: ["#143a72", "#315ca1"], sage: ["#6e1733", "#9c3b58"], sand: ["#a32135", "#d44752"] };
 
@@ -246,8 +246,6 @@ function stopVoice() {
   $("#voice-button").setAttribute("aria-pressed", "false");
   $("#voice-button").setAttribute("aria-label", "Speak a question");
   setVoiceStatus("Processing recording…");
-  const recognition = state.recognition; state.recognition = null;
-  if (recognition) { try { recognition.stop(); } catch (_) {} }
   if (state.recorder?.state === "recording") state.recorder.stop();
   state.voiceStream?.getTracks().forEach(track => track.stop());
   state.voiceStream = null;
@@ -283,35 +281,41 @@ async function startVoice() {
   const chunks = [];
   state.recorder = recorder;
   recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-  recorder.onstop = () => {
+  recorder.onstop = async () => {
     if (session !== state.voiceSession) return;
     if (!chunks.length) { setVoiceStatus("No audio was captured. Try again."); return; }
     if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
     const clip = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
     state.audioUrl = URL.createObjectURL(clip);
     const playback = $("#voice-playback"); playback.src = state.audioUrl; playback.hidden = false;
-    $("#voice-use-text").hidden = !state.voiceText;
-    setVoiceStatus(state.voiceText ? "Recording captured. Listen or use the transcript." : "Recording captured. Listen back; transcription was unavailable.");
+    setVoiceStatus("Sending recording to Whisper…");
+    $("#voice-transcript").textContent = "Transcribing your English, BM or mixed-language speech…";
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Could not read the recording"));
+        reader.readAsDataURL(clip);
+      });
+      const audio = String(dataUrl).split(",")[1] || "";
+      const response = await fetch("/api/transcribe", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({audio})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Whisper transcription failed");
+      if (session !== state.voiceSession) return;
+      state.voiceText = result.text || "";
+      $("#voice-transcript").textContent = state.voiceText || "No speech detected.";
+      $("#voice-use-text").hidden = !state.voiceText;
+      setVoiceStatus("Whisper transcript ready · detected language: " + (result.language || "unknown"));
+    } catch (error) {
+      $("#voice-transcript").textContent = error.message;
+      $("#voice-use-text").hidden = true;
+      setVoiceStatus("Transcription failed. You can still play the recording or try again.");
+    }
   };
   recorder.start();
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) { $("#voice-transcript").textContent = "Live transcription is unavailable in this browser, but your audio is being recorded."; return; }
-  const recognition = new Recognition(); state.recognition = recognition;
-  recognition.lang = $("#voice-language")?.value || "ms-MY"; recognition.interimResults = true; recognition.continuous = true;
-  recognition.onresult = event => {
-    let finalText = "", interimText = "";
-    for (const result of event.results) {
-      if (result.isFinal) finalText += result[0].transcript + " ";
-      else interimText += result[0].transcript;
-    }
-    state.voiceText = (finalText + interimText).trim();
-    $("#voice-transcript").textContent = (finalText + interimText).trim() || "Listening for speech…";
-    $("#voice-use-text").hidden = !state.voiceText;
-  };
-  recognition.onerror = event => { if (event.error !== "no-speech") $("#voice-transcript").textContent = "Transcription unavailable. Your audio can still be played back."; };
-  recognition.onend = () => { if (state.recording) stopVoice(); };
-  try { recognition.start(); }
-  catch (_) { state.recognition = null; $("#voice-transcript").textContent = "Transcription unavailable. Your audio is still being recorded."; }
 }
 
 async function init() {
