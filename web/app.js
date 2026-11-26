@@ -133,6 +133,11 @@ function renderMessages() {
       suggestions.forEach(text => { const button = document.createElement("button"); button.textContent = text; button.addEventListener("click", () => sendMessage(text)); choices.append(button); });
       root.append(choices);
     }
+    if (message.role === "assistant" && Number.isFinite(message.responseTimeMs)) {
+      const timing = document.createElement("div"); timing.className = "response-time";
+      timing.textContent = "Response time: " + (message.responseTimeMs / 1000).toFixed(2) + "s";
+      bubble.append(timing);
+    }
     if (message.evidence?.length) {
       const details = document.createElement("details"); details.className = "evidence";
       const summary = document.createElement("summary"); summary.textContent = `View ${message.evidence.length} customer reviews`; details.append(summary);
@@ -217,7 +222,7 @@ async function sendMessage(preset = null) {
   try {
     const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, context: attached ? { kind: attached.kind, id: attached.id } : null }) });
     if (!response.ok) throw new Error("Chat service unavailable");
-    const data = await response.json(); appendMessage("assistant", data.reply, { evidence: data.evidence || [], suggestions: data.suggestions || [] });
+    const data = await response.json(); appendMessage("assistant", data.reply, { evidence: data.evidence || [], suggestions: data.suggestions || [], responseTimeMs: data.response_time_ms });
   } catch (_) { appendMessage("assistant", "Sorry, I couldn't connect to the shop assistant. Please try again."); }
   finally { send.disabled = false; input.focus(); }
 }
