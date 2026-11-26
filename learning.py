@@ -217,9 +217,17 @@ def predict_aspect(question):
     index = int(np.argmax(probabilities))
     confidence = float(probabilities[index])
     label = str(model.classes_[index])
+    ranked = np.argsort(probabilities)[::-1][:3]
+    alternatives = [
+        {"aspect": str(model.classes_[i]), "confidence": float(probabilities[i])}
+        for i in ranked if int(i) != index
+    ]
     if confidence < MIN_CONFIDENCE:
-        return {"aspect": None, "confidence": confidence, "training_examples": count}
-    return {"aspect": label, "confidence": confidence, "training_examples": count}
+        return {"aspect": None, "confidence": confidence, "alternatives": [
+            {"aspect": str(model.classes_[i]), "confidence": float(probabilities[i])} for i in ranked
+        ], "training_examples": count}
+    return {"aspect": label, "confidence": confidence, "alternatives": alternatives,
+            "training_examples": count}
 
 def load_test_examples():
     """Load the fixed, independently authored aspect test set."""
